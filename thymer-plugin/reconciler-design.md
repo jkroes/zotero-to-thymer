@@ -8,11 +8,11 @@
 > `Sync Data`, and does the structured writes. `Content Sig` was also dropped (change-detection moves
 > Zotero-side). The blob shape (§2), scalar/type mapping (§3), multi-value procedure (§4), and
 > annotation model (§5) below are STILL ACCURATE; only the transport (§0–1 inbox, §6 control flow's
-> inbox `Status` lifecycle, §7–8 inbox identity) changed. Current truth: `HANDOFF.md` + `plugin.js`.
+> inbox `Status` lifecycle, §7–8 inbox identity) changed. Current truth: `../docs/HANDOFF.md` + `plugin.js`.
 
-Captured 2026-06-27. Design step #2 from `HANDOFF.md`. **Architecture chosen: all-SDK-writes**
+Captured 2026-06-27. Design step #2 from `../docs/HANDOFF.md`. **Architecture chosen: all-SDK-writes**
 (MCP is a dumb pipe). Builds on `~/repos/thymer-playground/notes/thymer-reference-model.md` (the §-refs below point there) and
-the verified facts table in `HANDOFF.md`. Memory: [[zotero-to-thymer-sync]], [[mcp-write-shapes]],
+the verified facts table in `../docs/HANDOFF.md`. Memory: [[zotero-to-thymer-sync]], [[mcp-write-shapes]],
 [[readonly-property-writes]], [[global-plugin-can-create-collections]], [[thymer-sandbox-hygiene]].
 Verify-live rule applies ([[verify-against-live-thymer]]).
 

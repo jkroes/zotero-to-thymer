@@ -6,7 +6,7 @@
  * `References` collection.
  *
  * Blob schema is the contract documented in the thymer-playground repo:
- * notes/zotero-thymer-inbox-schema.md §2. Keep the two in sync.
+ * thymer-plugin/reconciler-design.md §2. Keep the two in sync.
  *
  * This is the Thymer port's replacement for `tana/reference-builder.ts` +
  * `tana/tana-paste.ts`: the SAME Zotero extraction (BASE fields so one shape
@@ -105,7 +105,7 @@ export async function buildDesiredState(
   const fullCitation = await getCitation(item, false, citationFormat);
   const inTextCitation = await getCitation(item, true, citationFormat);
 
-  // Scalars keyed by the reconciler's blob ids (notes/zotero-thymer-inbox-schema §2).
+  // Scalars keyed by the reconciler's blob ids (thymer-plugin/reconciler-design §2).
   const scalars: Record<string, string | number> = {};
   const put = (
     key: string,

@@ -11,7 +11,7 @@
 // is the message, and identity lives on the record itself (`Zotero Key`), so it stays self-healing.
 // Change-detection (the old `Content Sig`) now lives Zotero-side (it skips pushing unchanged items);
 // the reconciler's per-field value-diff is the backstop, so no signature is stored on the Reference.
-// Design spec: notes/zotero-thymer-inbox-schema.md   ·   Architecture: HANDOFF.md
+// Design spec: ./reconciler-design.md   ·   Architecture: ../docs/HANDOFF.md
 //
 // Plugin type: GLOBAL plugin (extends AppPlugin) — it provisions and watches several collections and
 // is not bound to any one of them. For LOCAL dev via preview_plugin into a collection host, swap the

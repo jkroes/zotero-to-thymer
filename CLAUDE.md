@@ -11,7 +11,7 @@ Live-sync **Zotero** library items into **Thymer**. Two halves, **both in this r
 > **Status (2026-06-28):** the Zotero side is fully on **"Option A"** (no inbox) and **builds clean**
 > (`pnpm build` → `pnpm create-xpi` → `xpi/zothymer-<ver>.xpi`); the reconciler is **live-verified over
 > MCP**. The `.xpi` has **not yet been run inside Zotero** end-to-end. Authoritative history + verified
-> facts: **`HANDOFF.md`**; port status: **`PORTING.md`**.
+> facts: **`docs/HANDOFF.md`**; port status: **`docs/PORTING.md`**.
 
 ## Architecture — all-SDK-writes, "Option A" (no inbox)
 
@@ -82,7 +82,7 @@ author/editor/publisher/tag/collection entities and sets them as **multi-value r
 annotations as child records. Identity is **`Zotero Key` on the Reference** (no `Content Sig` collection
 field — change-detection lives Zotero-side). `custom.css` (applied workspace-global via `set_custom_css`,
 NOT plugin CSS) makes url-prop links clickable. Full design + verified facts: **`thymer-plugin/README.md`**
-and **`thymer-plugin/zotero-thymer-inbox-schema.md`**.
+and **`thymer-plugin/reconciler-design.md`**.
 
 ## Commands
 
@@ -190,11 +190,11 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
 
 ## Pointers
 
-- **`HANDOFF.md`** — architecture, verified-facts log, and the RECREATE-AFTER-REWIND steps (the Thymer
+- **`docs/HANDOFF.md`** — architecture, verified-facts log, and the RECREATE-AFTER-REWIND steps (the Thymer
   workspace can be rewound to factory default; recreation is replay-from-this-repo).
-- **`PORTING.md`** — the Tana→Thymer port status/history (note: its cross-repo paths predate the
+- **`docs/PORTING.md`** — the Tana→Thymer port status/history (note: its cross-repo paths predate the
   consolidation; both halves now live here).
-- **`thymer-plugin/README.md`** + **`thymer-plugin/zotero-thymer-inbox-schema.md`** — the reconciler.
+- **`thymer-plugin/README.md`** + **`thymer-plugin/reconciler-design.md`** — the reconciler.
 - **Memory slugs:** `zotero-to-thymer-sync`, `thymer-sdk-write-read-model`,
   `thymer-mcp-search-strict-equality`, `thymer-sandbox-hygiene`, `zotana-schema-fidelity`,
   `mcp-write-shapes`, `readonly-property-writes`.

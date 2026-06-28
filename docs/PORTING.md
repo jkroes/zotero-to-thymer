@@ -4,8 +4,8 @@
 halves live here (the reconciler was consolidated in from `thymer-playground` on 2026-06-28). This file is
 the port log; current orientation is **`CLAUDE.md`**. Authoritative context:
 
-- Architecture + decisions + verified facts: `HANDOFF.md` (this repo)
-- Blob/reconciler contract: `thymer-plugin/zotero-thymer-inbox-schema.md` (this repo)
+- Architecture + decisions + verified facts: `docs/HANDOFF.md` (this repo)
+- Blob/reconciler contract: `thymer-plugin/reconciler-design.md` (this repo)
 - The **other half** (built + live-verified): `thymer-plugin/` (this repo)
 
 ## Architecture (all-SDK-writes, "Option A": no inbox)

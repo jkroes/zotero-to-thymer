@@ -16,7 +16,7 @@ schema** (see "LIVE RECONCILER TEST" below). The Zotero `.xpi` itself is NOT yet
 Reference (`132DEBZCNWJCYYH0P7E89QXT8M`, key `1:LIVETEST1`) + its entities/annotation left in place for
 UI inspection (clean up before real syncs). So the RECREATE-AFTER-REWIND steps below are DONE for now.
 
-Working orientation: `CLAUDE.md`. Specs: `thymer-plugin/zotero-thymer-inbox-schema.md` (now Option A),
+Working orientation: `CLAUDE.md`. Specs: `thymer-plugin/reconciler-design.md` (now Option A),
 `~/repos/thymer-playground/notes/thymer-reference-model.md` (relations). Memory: `zotero-to-thymer-sync`,
 `thymer-sdk-write-read-model`, `thymer-mcp-search-strict-equality`, `thymer-sandbox-hygiene`,
 `zotana-schema-fidelity`.
@@ -47,7 +47,7 @@ this repo** (`~/repos/zotero-to-thymer`) — the Thymer reconciler was consolida
   citation style + restored prefs selector). ✅ MCP `search` envelope CONFIRMED LIVE (session 5):
   records under `matching_records:[{guid,…}]` — `searchRecordGuid` fixed to read it (was guessing
   `results`/`records`/`items`, which would have made every item look new). Full status:
-  **`~/repos/zotero-to-thymer/PORTING.md`**.
+  **`~/repos/zotero-to-thymer/docs/PORTING.md`**.
 
 ### ⚠ RECREATE-AFTER-REWIND (do this first next session)
 
@@ -226,7 +226,7 @@ below record the architecture investigation that preceded the build.
   Verified: an SDK plugin **wakes on MCP-originated writes**, so it can reconcile what MCP can't.
 - **Net shape:** `Zotero plugin (MCP push) → workspace data → Thymer SDK plugin (reconciler)`.
 - **Design choice DECIDED (2026-06-27): all-SDK-writes.** MCP is a dumb pipe; the SDK reconciler does
-  every structured write. Inbox/reconciler schema drafted in `thymer-plugin/zotero-thymer-inbox-schema.md`.
+  every structured write. Inbox/reconciler schema drafted in `thymer-plugin/reconciler-design.md`.
   (The thin-materializer alternative is recorded below for history.)
 
 ## The architecture
@@ -319,7 +319,7 @@ enabled in Zotero settings; Zotero v9.0.4 running this session.
 
 1. ~~Decide thin-materializer vs all-SDK-writes~~ ✅ **all-SDK-writes** (2026-06-27).
 2. ~~Sketch desired-state inbox schema + reconciler responsibilities~~ ✅
-   `thymer-plugin/zotero-thymer-inbox-schema.md` (collections, per-item blob, reconcile control flow,
+   `thymer-plugin/reconciler-design.md` (collections, per-item blob, reconcile control flow,
    identity split, open questions).
 3. ~~Build the SDK reconciler~~ ✅ **`thymer-plugin/` — built + live-verified e2e
    (2026-06-27).** Provisioning, scalars, multi-value relations (Authors/Publisher/Tags — the

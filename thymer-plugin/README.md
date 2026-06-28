@@ -7,8 +7,8 @@ that record's transient **`Sync Data`** field (`create_record` for new, `update_
 existing). This plugin does **every structured write** MCP cannot — the multi-value writes (see
 `~/repos/thymer-playground/notes/thymer-reference-model.md` §4).
 
-- **Architecture & decision:** `../HANDOFF.md` (all-SDK-writes, Option A).
-- **Build spec (collections, blob schema, control flow):** `./zotero-thymer-inbox-schema.md`.
+- **Architecture & decision:** `../docs/HANDOFF.md` (all-SDK-writes, Option A).
+- **Build spec (collections, blob schema, control flow):** `./reconciler-design.md`.
 
 ## What it does
 
