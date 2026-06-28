@@ -1,12 +1,12 @@
 # PORTING — zotero-to-tana (Zotana) → zotero-to-thymer
 
-**This repo is a fork of `~/repos/zotero-to-tana` mid-port to Thymer.** It does NOT build yet — the
-Tana backend has been partially replaced; the rewiring (orchestrator, identity store, prefs, build)
-is unfinished. Authoritative context lives in the **thymer-playground** repo:
+**This repo is a fork of `~/repos/zotero-to-tana`, ported to Thymer.** It now **builds clean** and both
+halves live here (the reconciler was consolidated in from `thymer-playground` on 2026-06-28). This file is
+the port log; current orientation is **`CLAUDE.md`**. Authoritative context:
 
-- Architecture + decisions: `~/repos/thymer-playground/HANDOFF.md`
-- Blob/reconciler contract: `~/repos/thymer-playground/notes/zotero-thymer-inbox-schema.md`
-- The **other half** (already built + live-verified): `~/repos/thymer-playground/plugins/zotero-thymer-sync/`
+- Architecture + decisions + verified facts: `HANDOFF.md` (this repo)
+- Blob/reconciler contract: `thymer-plugin/zotero-thymer-inbox-schema.md` (this repo)
+- The **other half** (built + live-verified): `thymer-plugin/` (this repo)
 
 ## Architecture (all-SDK-writes, "Option A": no inbox)
 
@@ -93,7 +93,7 @@ running Thymer with the reconciler plugin loaded.
    the plugin builds and runs as "Zothymer" today.
 3. **Tests**: rewrite the deleted specs against the new Thymer modules (mcp-client/desired-state/push).
 
-## Status banner in CLAUDE.md
+## CLAUDE.md
 
-The copied `CLAUDE.md` still documents the Tana plugin — treat it as Zotero-side dev reference
-(notifier/sync-manager/build are unchanged), but ignore all Tana-backend specifics; this file supersedes.
+`CLAUDE.md` has been rewritten for the Thymer port (Option A, both halves, the MCP server) — it is the
+current orientation; this file is the historical port log.
