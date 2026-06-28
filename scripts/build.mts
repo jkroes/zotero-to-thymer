@@ -14,7 +14,7 @@ type CleanupFunction = () => Promise<void>;
 const TARGET = 'firefox115';
 
 const buildPlugin: Plugin = {
-  name: 'zotana-build-plugin',
+  name: 'zothymer-build-plugin',
   setup(pluginBuild) {
     pluginBuild.onStart(() => {
       console.log(
@@ -40,7 +40,10 @@ export async function build({
 
   const contentContext = await esbuild.context({
     bundle: true,
-    entryPoints: ['src/content/zotana.ts', 'src/content/prefs/preferences.tsx'],
+    entryPoints: [
+      'src/content/zothymer.ts',
+      'src/content/prefs/preferences.tsx',
+    ],
     external: ['components/*', 'react', 'react-dom'],
     format: 'iife',
     outbase: 'src',

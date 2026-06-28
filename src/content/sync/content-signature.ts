@@ -10,7 +10,7 @@
  * Thymer port: the signature is just the desired-state blob's `contentSig`
  * (computed by `signatureOf` from the same blob the sync pushes), so the
  * modify-skip and the reconciler's reconcile-skip use one identical signature.
- * No Tana schema or network needed.
+ * No network needed.
  */
 
 import { buildDesiredState } from '../thymer/desired-state';

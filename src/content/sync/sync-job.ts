@@ -1,8 +1,8 @@
 import { ItemSyncError, LocalizableError } from '../errors';
 import {
-  ZotanaPref,
-  getRequiredZotanaPref,
-  getZotanaPref,
+  ZothymerPref,
+  getRequiredZothymerPref,
+  getZothymerPref,
 } from '../prefs/zothymer-pref';
 import { ThymerMcpClient } from '../thymer/mcp-client';
 import { REFERENCES_COLLECTION_NAME } from '../thymer/push';
@@ -34,8 +34,8 @@ export async function performSyncJob(
 }
 
 async function prepareSyncJob(window: Window): Promise<SyncJobParams> {
-  const workspace = getRequiredZotanaPref(ZotanaPref.thymerWorkspace);
-  const endpoint = getZotanaPref(ZotanaPref.thymerEndpoint);
+  const workspace = getRequiredZothymerPref(ZothymerPref.thymerWorkspace);
+  const endpoint = getZothymerPref(ZothymerPref.thymerEndpoint);
 
   const client = new ThymerMcpClient({
     workspace,

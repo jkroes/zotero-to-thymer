@@ -4,7 +4,7 @@
  * All-SDK-writes "Option A" port: a thin "build blob → upsert the Reference's
  * `Sync Data` → persist identity" step. The Zotero side only writes `Sync Data`
  * (and `Zotero Key` on create); the Thymer SDK reconciler does every structured
- * write. (Replaces the Tana create-vs-update upsert engine, which lived here.)
+ * write.
  */
 
 import {

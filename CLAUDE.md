@@ -34,18 +34,17 @@ job. Why push from Zotero (not pull from a Thymer plugin): Zotero runs privilege
   MCP server (streamable-HTTP, `127.0.0.1:13100`). Injected `fetch` (pass the Zotero window's). Methods:
   `initialize`, `ping` (`thymer_ping`), `findCollectionGuid` (`list_collections`), `searchRecordGuid`
   (`search`, strict-`===`), `createRecord`, `updateRecordProperty`. Deliberately small — no multi-value
-  writes (the reconciler owns those). **Replaces `tana/client.ts`.**
+  writes (the reconciler owns those).
 - **`thymer/desired-state.ts`** — `buildDesiredState(item)` → `DesiredState` blob: `zoteroKey`
   (`<libraryID>:<itemKey>`, group-safe), computed `title` (six title formats via `Zotero.QuickCopy`),
   `scalars`, multi-value `relations` (Creators/Editors/Contributors/Publisher), `tags`, `collections`,
-  `annotations`, and a `contentSig`. Carries the **full zotana CATALOG** and honors both the title-format
-  pref and the Quick Copy citation style. **Replaces `tana/reference-builder.ts` and `tana/tana-paste.ts`.**
+  `annotations`, and a `contentSig`. Honors both the title-format pref and the Quick Copy citation style.
 - **`thymer/push.ts`** — `pushDesiredState(client, blob, priorReferenceGuid?)`: upsert. With a cached GUID
   (or one re-found by `Zotero Key`) → `update_record_property(guid, "Sync Data", blob)`; else
   `create_record("References", title, {Zotero Key, Sync Data})`. Returns `{referenceGuid, created}`.
 - **`thymer/annotations.ts`** — `readItemAnnotations(item)` → `DesiredAnnotation[]` (highlight/note/image;
   `annoKey = <libraryID>:<annotationKey>`; reading-order `order`; `zotero://open-pdf` deep link).
-- **`thymer/entities.ts`** — `bucketCreators` (primary-role-aware creator routing), Tana-free.
+- **`thymer/entities.ts`** — `bucketCreators` (primary-role-aware creator routing).
 - **`data/item-data.ts`** — Zotero-side identity store. A hidden **"Thymer" link-attachment** under the
   item carries `ThymerSyncData = {referenceGuid, zoteroKey, contentSig?}` as JSON; `referenceGuid` is the
   durable upsert key. Both writes use `skipNotifier: true` (re-entrancy guard, below). Tag `zothymer` is
@@ -59,18 +58,16 @@ job. Why push from Zotero (not pull from a Thymer plugin): Zotero runs privilege
   `{referenceGuid, zoteroKey, contentSig}` + tag.
 - **`sync/content-signature.ts`** — `contentSignature(item)` = the blob's `contentSig` (network-free), so
   the modify-skip and the reconciler's reconcile-skip share one identical signature.
-- **`services/sync-manager.ts`** — inherited from Notero/Zotana, still accurate: global
+- **`services/sync-manager.ts`** — global
   `SYNC_DEBOUNCE_MS` (5 s) coalescing, the modify-path content-signature no-op skip, and the
   `syncingItemIDs` re-entrancy guard.
 - **`prefs/zothymer-pref.ts`** — pref accessors. Branch is **`extensions.zothymer.*`** (unique per plugin
   so Zothymer and Zotana don't share stored prefs). Prefs: `thymerWorkspace`, `thymerEndpoint`,
-  `pageTitleFormat`, `syncOnModifyItems`, `collectionSyncConfigs`. (Internal identifiers are still
-  `ZotanaPref`/`getZotanaPref` — a deferred cosmetic rename, see Open work.)
+  `pageTitleFormat`, `syncOnModifyItems`, `collectionSyncConfigs`.
 - **`prefs/preferences.tsx` + `preferences.xhtml`** — connection groupbox (Workspace GUID + MCP Endpoint),
   the collection sync table, sync-on-modify, and the title-format selector.
-- **`locale/en-US/zothymer.ftl`** — Fluent source of truth for user-facing strings. Renamed from
-  `zotana.ftl`: Zotero registers plugin FTLs in a **global filename-keyed registry**, so a shared
-  `zotana.ftl` let Zotana shadow our strings (blank labels). All l10n ids are `zothymer-*`.
+- **`locale/en-US/zothymer.ftl`** — Fluent source of truth for user-facing strings. All l10n ids are
+  `zothymer-*`.
 
 ### Thymer side — `thymer-plugin/`
 
@@ -179,11 +176,7 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
   1. **Test in Zotero:** install the `.xpi` (Tools → Plugins → Install from file), set the Thymer workspace
      GUID in plugin prefs, run Thymer with the reconciler (`thymer-plugin/plugin.js`) loaded, sync a
      collection, verify `References` populate.
-  2. **Deep rename (cosmetic, deferred):** internal identifiers still on the `zotana` name —
-     `class Zotana` / `Zotana_Preferences` / `getGlobalZotana`, the `ZotanaPref` enum, bundle
-     `content/zotana.js`. High churn, real break risk (string-keyed lookups), zero functional benefit; the
-     plugin builds/runs as "Zothymer" today.
-  3. **Tests:** the Tana specs were deleted; rewrite against the Thymer modules
+  2. **Tests:** the old test specs were deleted; rewrite against the Thymer modules
      (`mcp-client` / `desired-state` / `push`).
 - **`tsc` noise:** `typecheck` reports errors inside `node_modules/@voidzero-dev/*` (vite-plus `.d.ts`);
   `src/` is clean. Add `"skipLibCheck": true` to `tsconfig.json` for a clean run if wanted.

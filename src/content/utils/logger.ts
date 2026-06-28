@@ -2,7 +2,7 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 type ProxiedMethod = keyof typeof PROXIED_METHODS;
 
-const LOG_PREFIX = '[Zotana]';
+const LOG_PREFIX = '[Zothymer]';
 
 const STYLED_LOG_PREFIX = [
   `%c${LOG_PREFIX}`,

@@ -9,7 +9,7 @@ import {
 } from './services';
 import { logger } from './utils';
 
-export class Zotana {
+export class Zothymer {
   public readonly eventManager: EventManager;
 
   private readonly preferencePaneManager: PreferencePaneManager;
@@ -103,9 +103,6 @@ export class Zotana {
   }
 }
 
-// The plugin attaches its service container to `Zotero.Zothymer` (NOT `Zotero.Zotana`):
-// the global key must be unique per plugin, or the still-installable Zotana plugin and this one
-// overwrite each other's container → lifecycle hooks fire against the wrong instance.
-export type ZoteroWithZotana = Zotero & { Zothymer?: Zotana };
+export type ZoteroWithZothymer = Zotero & { Zothymer?: Zothymer };
 
-(Zotero as ZoteroWithZotana).Zothymer = new Zotana();
+(Zotero as ZoteroWithZothymer).Zothymer = new Zothymer();

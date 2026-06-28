@@ -1,4 +1,4 @@
-# Releasing Zotana
+# Releasing Zothymer
 
 ## What runs on GitHub (the "robots")
 

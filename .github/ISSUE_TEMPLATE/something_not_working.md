@@ -7,7 +7,7 @@ assignees: ''
 ---
 
 <!--
-Have you checked the [README](https://github.com/jkroes/zotero-tana#readme)? There may already be an answer for you there. If there isn't, please provide the info below!
+Have you checked the [README](https://github.com/jkroes/zotero-to-thymer#readme)? There may already be an answer for you there. If there isn't, please provide the info below!
 -->
 
 **Describe the issue**

@@ -5,20 +5,14 @@
  * write (scalars + multi-value relations + annotations) into the real
  * `References` collection.
  *
- * Blob schema is the contract documented in the thymer-playground repo:
+ * Blob schema is the contract documented in
  * thymer-plugin/reconciler-design.md §2. Keep the two in sync.
- *
- * This is the Thymer port's replacement for `tana/reference-builder.ts` +
- * `tana/tana-paste.ts`: the SAME Zotero extraction (BASE fields so one shape
- * covers every item type; primary-role-aware creators; multipart SQL dates), but
- * the output is a plain JSON blob keyed by the reconciler's property labels —
- * NOT a Tana-schema-resolved node or Tana Paste text.
  */
 
 import {
   PageTitleFormat,
-  ZotanaPref,
-  getZotanaPref,
+  ZothymerPref,
+  getZothymerPref,
 } from '../prefs/zothymer-pref';
 
 import { readItemAnnotations } from './annotations';
@@ -53,7 +47,7 @@ export type DesiredState = {
   scalars: Record<string, string | number>;
   /** Multi-value record relations → reconciler resolves entities + `set([...])`. */
   relations: {
-    /** Lead creator(s) — zotana's `Creators` field (primary-role-aware). */
+    /** Lead creator(s) — primary-role-aware. */
     Creators: DesiredEntity[];
     Editors: DesiredEntity[];
     Contributors: DesiredEntity[];
@@ -98,9 +92,9 @@ export async function buildDesiredState(
   const sqlDate = item.getField('date', true, true);
   const doi = get('DOI');
 
-  // Live CSL citations: honor the user's Zotero Quick Copy style (APA fallback),
-  // exactly like zotana. Fetched once each and reused for both the scalar fields
-  // and the node name (when the title format is a citation form).
+  // Live CSL citations: honor the user's Zotero Quick Copy style (APA fallback).
+  // Fetched once each and reused for both the scalar fields and the record title
+  // (when the title format is a citation form).
   const citationFormat = getCitationFormat();
   const fullCitation = await getCitation(item, false, citationFormat);
   const inTextCitation = await getCitation(item, true, citationFormat);
@@ -125,9 +119,8 @@ export async function buildDesiredState(
   put('volume', get('volume'));
   put('issue', get('issue'));
   put('pages', get('pages'));
-  // Remaining zotana CATALOG fields (constants.ts), same extraction as
-  // reference-builder.ts. `series` uses series||seriesTitle, suppressed for
-  // podcasts (seriesTitle is overloaded as the show name → Container above).
+  // `series` uses series||seriesTitle, suppressed for podcasts (seriesTitle is
+  // overloaded as the show name → Container above).
   put('edition', get('edition'));
   put('series', isPodcast ? undefined : get('series') || get('seriesTitle'));
   put('number', get('number'));
@@ -201,7 +194,7 @@ export function signatureOf(blob: DesiredState): string {
   return parts.sort().join('\n');
 }
 
-// --- extraction helpers (ported from tana/reference-builder.ts, Tana-free) ----
+// --- extraction helpers -------------------------------------------------------
 
 /** The 4-digit year from Zotero's multipart SQL date, or null when `0000`. */
 export function extractYear(sqlDate: string | undefined): number | null {
@@ -231,17 +224,10 @@ export function zoteroLink(item: Zotero.Item): string {
 }
 
 /**
- * Compute the node name (the blob `title` → Thymer's built-in record "Title").
- * Mirrors zotana's `buildTitle` + the `pageTitleFormat`→`TitleFormat` mapping
- * (the deleted `sync/sync-config.ts`): the format comes from the `pageTitleFormat`
- * pref, defaulting to author-date. The two CSL forms are passed in precomputed so
- * we don't re-run Quick Copy. Falls back to the display title when a chosen source
- * (citation key, short title, a citation) is empty.
- *
- * NOTE: the prefs UI to *set* `pageTitleFormat` was dropped in the fork's cleanup
- * (schema-panel.tsx); until it's restored the value is only settable via
- * `extensions.zothymer.pageTitleFormat`. Reading it here is still faithful to
- * zotana and defaults to the prior author-date behavior.
+ * Compute the record title (the blob `title` → Thymer's built-in "Title").
+ * Format comes from the `pageTitleFormat` pref, defaulting to author-date.
+ * The two CSL forms are passed in precomputed so we don't re-run Quick Copy.
+ * Falls back to the display title when a chosen source is empty.
  */
 function buildTitle(
   item: Zotero.Item,
@@ -250,7 +236,7 @@ function buildTitle(
 ): string {
   const fallback = item.getDisplayTitle() || 'Untitled';
   const format =
-    getZotanaPref(ZotanaPref.pageTitleFormat) ??
+    getZothymerPref(ZothymerPref.pageTitleFormat) ??
     PageTitleFormat.itemAuthorDateCitation;
   switch (format) {
     case PageTitleFormat.itemCitationKey:
@@ -277,30 +263,23 @@ function buildAuthorDateTitle(item: Zotero.Item): string {
   return citation || 'Untitled';
 }
 
-/**
- * Default Zotero Quick Copy style used when the user hasn't set one (zotana's
- * `APA_STYLE`).
- */
+/** Default Zotero Quick Copy style when the user hasn't set one. */
 const APA_STYLE = 'bibliography=http://www.zotero.org/styles/apa';
 
-/**
- * The CSL style for live citations: the user's Zotero Quick Copy setting
- * (`export.quickCopy.setting`), falling back to APA — exactly zotana's
- * `getCitationFormat`. Reuses Zotero's own preference, so no plugin pref needed.
- */
+/** The user's Zotero Quick Copy CSL setting, falling back to APA. */
 function getCitationFormat(): string {
   const format = Zotero.Prefs.get('export.quickCopy.setting');
   if (typeof format === 'string' && format) return format;
   return APA_STYLE;
 }
 
-/** A Zotero SQL date(time) trimmed to `YYYY-MM-DD` (zotana's `isoDate`). */
+/** A Zotero SQL date(time) trimmed to `YYYY-MM-DD`. */
 function isoDate(date: string | undefined): string | null {
   if (!date) return null;
   return date.slice(0, 10);
 }
 
-/** Filesystem path of the item's best attachment, if any (zotana `getFilePath`). */
+/** Filesystem path of the item's best attachment, if any. */
 async function getFilePath(item: Zotero.Item): Promise<string | undefined> {
   const attachment = await item.getBestAttachment();
   if (!attachment) return undefined;
@@ -309,8 +288,8 @@ async function getFilePath(item: Zotero.Item): Promise<string | undefined> {
 
 /**
  * A live CSL citation via Zotero Quick Copy — `inText` picks the in-text form,
- * otherwise the bibliography form. Ported from zotana's reference-builder
- * `fetchCitation`; resolves to undefined when Zotero can't produce one.
+ * otherwise the bibliography form. Resolves to undefined when Zotero can't
+ * produce one.
  */
 function getCitation(
   item: Zotero.Item,

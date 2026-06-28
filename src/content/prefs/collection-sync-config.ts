@@ -1,6 +1,10 @@
 import { isObject, logger } from '../utils';
 
-import { getZotanaPref, ZotanaPref, setZotanaPref } from './zothymer-pref';
+import {
+  getZothymerPref,
+  ZothymerPref,
+  setZothymerPref,
+} from './zothymer-pref';
 
 export type CollectionSyncConfig = {
   syncEnabled: boolean;
@@ -16,7 +20,7 @@ export type CollectionSyncConfigsRecord = Record<
  * @returns An object of sync configs keyed by collection ID.
  */
 export function loadSyncConfigs(): CollectionSyncConfigsRecord {
-  const json = getZotanaPref(ZotanaPref.collectionSyncConfigs);
+  const json = getZothymerPref(ZothymerPref.collectionSyncConfigs);
   return parseSyncConfigs(json);
 }
 
@@ -57,7 +61,7 @@ export function loadSyncEnabledCollectionIDs(): Set<Zotero.Collection['id']> {
  * @param configs An object of sync configs.
  */
 export function saveSyncConfigs(configs: CollectionSyncConfigsRecord): void {
-  setZotanaPref(ZotanaPref.collectionSyncConfigs, JSON.stringify(configs));
+  setZothymerPref(ZothymerPref.collectionSyncConfigs, JSON.stringify(configs));
 }
 
 /**

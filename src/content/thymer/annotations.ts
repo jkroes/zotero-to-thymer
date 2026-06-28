@@ -1,10 +1,9 @@
 /**
  * Read a Zotero item's PDF/EPUB annotations and normalize each into a
- * `DesiredAnnotation` for the desired-state blob. Tana-free port of
- * `sync/annotations.ts` — no Tana schema/tag IDs; the reconciler stores `type`
+ * `DesiredAnnotation` for the desired-state blob. The reconciler stores `type`
  * as a plain string and owns the per-annotation upsert (by `annoKey`).
  *
- * Mapping (kept from the Tana version):
+ * Mapping:
  *   - highlight / underline -> type "highlight"; text = selected text, comment = note.
  *   - note / text           -> type "note"; comment = the typed content.
  *   - image                 -> type "image"; comment = the note, if any.

@@ -1,7 +1,6 @@
 /**
  * Minimal JSON-RPC client for the Thymer desktop app's built-in MCP server
- * (streamable-HTTP on http://127.0.0.1:13100). This is the Tana→Thymer port's
- * replacement for `tana/client.ts`: instead of Tana's plain REST API, Thymer
+ * (streamable-HTTP on http://127.0.0.1:13100). Thymer
  * exposes everything over MCP, so we speak JSON-RPC + `tools/call`.
  *
  * In the all-SDK-writes architecture ("Option A": no inbox) the Zotero plugin is

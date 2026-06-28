@@ -1,7 +1,7 @@
 import { FluentMessageId } from '../../locale/fluent-types';
 import { MissingPrefError } from '../errors';
 
-export enum ZotanaPref {
+export enum ZothymerPref {
   collectionSyncConfigs = 'collectionSyncConfigs',
   pageTitleFormat = 'pageTitleFormat',
   syncOnModifyItems = 'syncOnModifyItems',
@@ -37,18 +37,16 @@ export const PAGE_TITLE_FORMAT_L10N_IDS: Record<
   [PageTitleFormat.itemTitle]: 'zothymer-page-title-format-item-title',
 };
 
-type ZotanaPrefValue = Partial<{
-  [ZotanaPref.collectionSyncConfigs]: string;
-  [ZotanaPref.pageTitleFormat]: PageTitleFormat;
-  [ZotanaPref.syncOnModifyItems]: boolean;
-  [ZotanaPref.thymerWorkspace]: string;
-  [ZotanaPref.thymerEndpoint]: string;
+type ZothymerPrefValue = Partial<{
+  [ZothymerPref.collectionSyncConfigs]: string;
+  [ZothymerPref.pageTitleFormat]: PageTitleFormat;
+  [ZothymerPref.syncOnModifyItems]: boolean;
+  [ZothymerPref.thymerWorkspace]: string;
+  [ZothymerPref.thymerEndpoint]: string;
 }>;
 
-function buildFullPrefName(pref: ZotanaPref): string {
-  // `extensions.zothymer.*` (NOT `extensions.zotana.*`): the pref branch must be unique per plugin,
-  // or this plugin and the Zotana plugin read/write the SAME stored prefs (incl. the enabled-
-  // collections config and the Thymer workspace GUID).
+function buildFullPrefName(pref: ZothymerPref): string {
+  // Unique per plugin so Zothymer and Zotana don't share stored prefs.
   return `extensions.zothymer.${pref}`;
 }
 
@@ -75,57 +73,57 @@ function getPageTitleFormatPref(
   return isPageTitleFormat(value) ? value : undefined;
 }
 
-function convertRawPrefValue<P extends ZotanaPref>(
+function convertRawPrefValue<P extends ZothymerPref>(
   pref: P,
   value: Zotero.Prefs.Value,
-): ZotanaPrefValue[P] {
+): ZothymerPrefValue[P] {
   const booleanPref = getBooleanPref(value);
   const stringPref = getStringPref(value);
 
   const pageTitleFormatPref =
-    (pref === ZotanaPref.pageTitleFormat && getPageTitleFormatPref(value)) ||
+    (pref === ZothymerPref.pageTitleFormat && getPageTitleFormatPref(value)) ||
     undefined;
 
   return {
-    [ZotanaPref.collectionSyncConfigs]: stringPref,
-    [ZotanaPref.pageTitleFormat]: pageTitleFormatPref,
-    [ZotanaPref.syncOnModifyItems]: booleanPref,
-    [ZotanaPref.thymerWorkspace]: stringPref,
-    [ZotanaPref.thymerEndpoint]: stringPref,
+    [ZothymerPref.collectionSyncConfigs]: stringPref,
+    [ZothymerPref.pageTitleFormat]: pageTitleFormatPref,
+    [ZothymerPref.syncOnModifyItems]: booleanPref,
+    [ZothymerPref.thymerWorkspace]: stringPref,
+    [ZothymerPref.thymerEndpoint]: stringPref,
   }[pref];
 }
 
-export function clearZotanaPref(pref: ZotanaPref): void {
+export function clearZothymerPref(pref: ZothymerPref): void {
   Zotero.Prefs.clear(buildFullPrefName(pref), true);
 }
 
-export function getZotanaPref<P extends ZotanaPref>(
+export function getZothymerPref<P extends ZothymerPref>(
   pref: P,
-): ZotanaPrefValue[P] {
+): ZothymerPrefValue[P] {
   const value = Zotero.Prefs.get(buildFullPrefName(pref), true);
   return convertRawPrefValue(pref, value);
 }
 
-export function getRequiredZotanaPref<P extends ZotanaPref>(
+export function getRequiredZothymerPref<P extends ZothymerPref>(
   pref: P,
-): NonNullable<ZotanaPrefValue[P]> {
-  const value = getZotanaPref(pref);
+): NonNullable<ZothymerPrefValue[P]> {
+  const value = getZothymerPref(pref);
 
   if (value) return value;
 
   throw new MissingPrefError(pref);
 }
 
-export function setZotanaPref<P extends ZotanaPref>(
+export function setZothymerPref<P extends ZothymerPref>(
   pref: P,
-  value: ZotanaPrefValue[P],
+  value: ZothymerPrefValue[P],
 ): void {
   Zotero.Prefs.set(buildFullPrefName(pref), value, true);
 }
 
-export function registerZotanaPrefObserver<P extends ZotanaPref>(
+export function registerZothymerPrefObserver<P extends ZothymerPref>(
   pref: P,
-  handler: (value: ZotanaPrefValue[P]) => void,
+  handler: (value: ZothymerPrefValue[P]) => void,
 ): symbol {
   return Zotero.Prefs.registerObserver(
     buildFullPrefName(pref),
@@ -136,6 +134,6 @@ export function registerZotanaPrefObserver<P extends ZotanaPref>(
   );
 }
 
-export function unregisterZotanaPrefObserver(symbol: symbol): void {
+export function unregisterZothymerPrefObserver(symbol: symbol): void {
   Zotero.Prefs.unregisterObserver(symbol);
 }

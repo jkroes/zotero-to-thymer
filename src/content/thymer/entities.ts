@@ -1,6 +1,6 @@
 /**
  * Creator-role bucketing + Person/Organization routing, reading the live Zotero
- * API. (Moved out of the deleted `tana/` tree; Tana-free.)
+ * API.
  *
  *  - PRIMARY-ROLE-AWARE: the lead bucket holds the item type's *primary* creator
  *    role (author, but presenter/podcaster/director/... per type), resolved via

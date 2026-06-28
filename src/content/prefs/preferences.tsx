@@ -8,9 +8,9 @@ import { SyncConfigsTable } from './sync-configs-table';
 import {
   PAGE_TITLE_FORMAT_L10N_IDS,
   PageTitleFormat,
-  ZotanaPref,
-  getZotanaPref,
-  setZotanaPref,
+  ZothymerPref,
+  getZothymerPref,
+  setZothymerPref,
 } from './zothymer-pref';
 
 type ReactDOMClient = typeof ReactDOM & { createRoot: typeof createRoot };
@@ -19,8 +19,8 @@ class Preferences {
   public async init(): Promise<void> {
     await Zotero.uiReadyPromise;
 
-    this.initTextPref('zothymer-thymerWorkspace', ZotanaPref.thymerWorkspace);
-    this.initTextPref('zothymer-thymerEndpoint', ZotanaPref.thymerEndpoint);
+    this.initTextPref('zothymer-thymerWorkspace', ZothymerPref.thymerWorkspace);
+    this.initTextPref('zothymer-thymerEndpoint', ZothymerPref.thymerEndpoint);
 
     await this.initPageTitleFormatSelect();
     await this.initSyncConfigsTable();
@@ -57,12 +57,12 @@ class Preferences {
     }
 
     select.value =
-      getZotanaPref(ZotanaPref.pageTitleFormat) ??
+      getZothymerPref(ZothymerPref.pageTitleFormat) ??
       PageTitleFormat.itemAuthorDateCitation;
     select.addEventListener('change', () => {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-      setZotanaPref(
-        ZotanaPref.pageTitleFormat,
+      setZothymerPref(
+        ZothymerPref.pageTitleFormat,
         select.value as PageTitleFormat,
       );
     });
@@ -83,7 +83,7 @@ class Preferences {
    * value and write back (trimmed) on input. Zotero's native `preference`
    * binding is reserved for the checkbox; text inputs are handled here.
    */
-  private initTextPref(elementId: string, pref: ZotanaPref): void {
+  private initTextPref(elementId: string, pref: ZothymerPref): void {
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const input = document.getElementById(elementId) as HTMLInputElement | null;
     if (!input) {
@@ -91,11 +91,11 @@ class Preferences {
       return;
     }
 
-    const current = getZotanaPref(pref);
+    const current = getZothymerPref(pref);
     if (typeof current === 'string') input.value = current;
 
     input.addEventListener('input', () => {
-      setZotanaPref(pref, input.value.trim());
+      setZothymerPref(pref, input.value.trim());
     });
   }
 
@@ -127,10 +127,10 @@ class Preferences {
   }
 }
 
-type WindowWithZotanaPreferences = typeof window & {
+type WindowWithZothymerPreferences = typeof window & {
   Zothymer_Preferences: Preferences;
 };
 
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-(window as WindowWithZotanaPreferences).Zothymer_Preferences =
+(window as WindowWithZothymerPreferences).Zothymer_Preferences =
   new Preferences();

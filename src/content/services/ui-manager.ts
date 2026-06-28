@@ -5,9 +5,7 @@ import type { EventManager } from './event-manager';
 import type { PreferencePaneManager } from './preference-pane-manager';
 import type { Service, ServiceParams } from './service';
 
-// Unique filename: Zotero registers plugin FTLs into a GLOBAL registry keyed by filename, so
-// reusing the upstream `zotana.ftl` collides with the still-installable Zotana plugin (its file
-// shadows ours → our new thymer-* strings render blank). Keep this distinct.
+// Zotero registers FTLs globally by filename; must differ from the Zotana plugin's.
 const FTL_FILE = 'zothymer.ftl';
 
 export class UIManager implements Service {

@@ -31,7 +31,7 @@ jobs:
         uses: actions/github-script@v9
         with:
           result-encoding: string
-          script: return `zotana-${require('./gen/version')}`
+          script: return `zothymer-${require('./gen/version')}`
       - id: upload-artifact
         name: Upload xpi artifact
         uses: actions/upload-artifact@v7

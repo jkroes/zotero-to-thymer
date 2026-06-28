@@ -9,7 +9,7 @@ export {
   isXULElementOfType,
 } from './elements';
 export { getAllCollectionItems } from './get-all-collection-items';
-export { getGlobalZotana } from './get-global-zotana';
+export { getGlobalZothymer } from './get-global-zothymer';
 export { getItemURL } from './get-item-url';
 export { getLocalizedErrorMessage } from './get-localized-error-message';
 export { getMainWindow } from './get-main-window';

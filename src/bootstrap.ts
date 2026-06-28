@@ -1,6 +1,6 @@
-import type { ZoteroWithZotana } from './content/zotana';
+import type { ZoteroWithZothymer } from './content/zothymer';
 
-declare const Zotero: ZoteroWithZotana;
+declare const Zotero: ZoteroWithZothymer;
 
 const LOG_PREFIX = '[Zothymer] ';
 
@@ -40,7 +40,7 @@ async function startup(
 ) {
   log(`Starting v${version}`);
 
-  Services.scriptloader.loadSubScript(rootURI + 'content/zotana.js');
+  Services.scriptloader.loadSubScript(rootURI + 'content/zothymer.js');
 
   await Zotero.Zothymer?.startup({ pluginID: id, rootURI, version });
 }

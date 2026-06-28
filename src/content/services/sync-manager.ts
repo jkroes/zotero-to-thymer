@@ -1,6 +1,6 @@
 import { getThymerSyncData } from '../data/item-data';
 import { loadSyncEnabledCollectionIDs } from '../prefs/collection-sync-config';
-import { getZotanaPref, ZotanaPref } from '../prefs/zothymer-pref';
+import { getZothymerPref, ZothymerPref } from '../prefs/zothymer-pref';
 import { contentSignature } from '../sync/content-signature';
 import { performSyncJob } from '../sync/sync-job';
 import { getAllCollectionItems, logger } from '../utils';
@@ -84,7 +84,7 @@ export class SyncManager implements Service {
   /**
    * Filter to items whose synced source content changed since their last sync,
    * then enqueue those. The modify path only ever updates an item that already
-   * has a Tana node (never-synced items are filtered out upstream in
+   * has a Thymer record (never-synced items are filtered out upstream in
    * `getItemsForNotifierEvent`); an item synced before content signatures
    * existed has no baseline and always syncs as an update.
    */
@@ -143,7 +143,7 @@ export class SyncManager implements Service {
   private getItemsForNotifierEvent(
     ...[event, ids]: NotifierEventParams
   ): Zotero.Item[] {
-    const syncOnModifyItems = getZotanaPref(ZotanaPref.syncOnModifyItems);
+    const syncOnModifyItems = getZothymerPref(ZothymerPref.syncOnModifyItems);
 
     if (!syncOnModifyItems && event !== 'collection-item.add') {
       return [];
@@ -156,11 +156,11 @@ export class SyncManager implements Service {
       case 'collection-item.add':
         return Zotero.Items.get(this.getIndexedIDs(1, ids));
       case 'item.modify':
-        // A modify only UPDATES an item that already has a Tana node; it never
-        // creates one. This stops deleting the hidden "Tana" sync attachment
+        // A modify only UPDATES an item that already has a Thymer record; it never
+        // creates one. This stops deleting the hidden "Thymer" sync attachment
         // (which makes Zotero fire item.modify on the parent) from recreating
-        // the node — the deletion disconnects the item; creation stays on
-        // collection-add / manual sync. Non-"Tana" attachment edits are already
+        // the record — the deletion disconnects the item; creation stays on
+        // collection-add / manual sync. Non-"Thymer" attachment edits are already
         // no-op-skipped via the content signature.
         return Zotero.Items.get(ids).filter(
           (item) =>
@@ -193,12 +193,12 @@ export class SyncManager implements Service {
   }
 
   /**
-   * Enqueue Zotero items to sync to Tana.
+   * Enqueue Zotero items to sync to Thymer.
    *
    * Because Zotero items can be updated multiple times in short succession,
    * any subsequent updates after the first can sometimes occur before the
-   * initial sync has finished and stored the Tana node ID. This has the
-   * potential to create duplicate Tana nodes.
+   * initial sync has finished and stored the Reference GUID. This has the
+   * potential to create duplicate Thymer records.
    *
    * The guard against that is serialization: `syncInProgress` lets only one
    * sync run at a time, and anything enqueued meanwhile is merged into
