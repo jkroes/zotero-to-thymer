@@ -1,0 +1,20 @@
+/* Zotero→Thymer sync: render url-type property values as visible, clickable links.
+   url properties (DOI/URL/Zotero Link) are real <a> anchors but Thymer gives them no
+   link styling, so they read as plain text. Scope: property value cells on the record page.
+
+   APPLY SEPARATELY FROM THE PLUGIN. This is workspace-global custom CSS, not plugin CSS:
+   apply via the MCP `set_custom_css` tool (workspace W3TZX0YZ4FRCMSHGB976K32N4D), NOT
+   `update_plugin_css`. It is independent of the plugin lifecycle, so a workspace rewind
+   reverts it and it must be re-applied as its own step. */
+.page-prop-val a[href^='http'],
+.page-prop-val a[href^='https'],
+.page-prop-val a[href^='zotero:'] {
+  color: #4ea1ff !important;
+  text-decoration: underline !important;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.page-prop-val a[href^='http']:hover,
+.page-prop-val a[href^='zotero:']:hover {
+  filter: brightness(1.15);
+}
