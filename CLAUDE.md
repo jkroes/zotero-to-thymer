@@ -38,8 +38,8 @@ job. Why push from Zotero (not pull from a Thymer plugin): Zotero runs privilege
 - **`thymer/desired-state.ts`** — `buildDesiredState(item)` → `DesiredState` blob: `zoteroKey`
   (`<libraryID>:<itemKey>`, group-safe), computed `title` (six title formats via `Zotero.QuickCopy`),
   `scalars`, multi-value `relations` (Creators/Editors/Contributors/Publisher), `tags`, `collections`,
-  `annotations`, and a `contentSig`. Carries the **full zotana CATALOG** and honors the title-format pref
-  - Quick Copy citation style. **Replaces `tana/reference-builder.ts` + `tana/tana-paste.ts`.**
+  `annotations`, and a `contentSig`. Carries the **full zotana CATALOG** and honors both the title-format
+  pref and the Quick Copy citation style. **Replaces `tana/reference-builder.ts` and `tana/tana-paste.ts`.**
 - **`thymer/push.ts`** — `pushDesiredState(client, blob, priorReferenceGuid?)`: upsert. With a cached GUID
   (or one re-found by `Zotero Key`) → `update_record_property(guid, "Sync Data", blob)`; else
   `create_record("References", title, {Zotero Key, Sync Data})`. Returns `{referenceGuid, created}`.

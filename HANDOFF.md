@@ -32,9 +32,9 @@ this repo** (`~/repos/zotero-to-thymer`) — the Thymer reconciler was consolida
   self-provisions **6 collections** (`People`/`Organizations`/`Zotero Tags`/`Zotero Collections`/
   `References`/`Annotations` — **no `Zotero Inbox`**). It WATCHES `References`: when a record has a
   non-empty **`Sync Data`** (transient text field the Zotero side writes the desired-state blob into),
-  it clears the blob first, then does every structured write MCP can't (scalars + multi-value relations
-  - entity dedup + annotations). Identity is `Zotero Key` ON the Reference; `Content Sig` is GONE.
-    **Option A create + update paths LIVE-VERIFIED 2026-06-28** (see README + session-4 note below).
+  it clears the blob first, then does every structured write MCP can't (scalars, multi-value relations,
+  entity dedup, annotations). Identity is `Zotero Key` ON the Reference; `Content Sig` is GONE.
+  **Option A create + update paths LIVE-VERIFIED 2026-06-28** (see README + session-4 note below).
 - **Zotero plugin (Zothymer)** — `src/` (this repo; forked from
   `~/repos/zotero-to-tana`). ✅ **TASK #3 DONE (2026-06-28, session 5) — reworked to Option A**
   (builds clean; NOT yet run in Zotero). `push.ts` now searches `@References."Zotero Key" === "<key>"`
