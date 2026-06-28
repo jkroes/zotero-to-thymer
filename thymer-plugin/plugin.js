@@ -1,4 +1,7 @@
-/// <reference path="../../sdk/types.d.ts" />
+// NOTE: This file is deployed by pasting into a Thymer global plugin (or via MCP
+// `update_plugin_code`); it is NOT built by this repo. For editor IntelliSense against the Thymer
+// SDK (`AppPlugin`, `this.data`/`this.events`/`this.ui`), add a `/// <reference path>` to your local
+// Thymer SDK types (e.g. `~/repos/thymer-playground/sdk/types.d.ts`) — not committed here.
 // Zotero → Thymer sync — the SDK-side RECONCILER (all-SDK-writes architecture, "Option A": no inbox).
 //
 // Role: MCP is a dumb pipe. The Zotero plugin addresses a `References` record DIRECTLY over MCP —
