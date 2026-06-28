@@ -335,13 +335,13 @@ enabled in Zotero settings; Zotero v9.0.4 running this session.
    `zotero-to-tana`; see its `PORTING.md`). Done: the new `src/content/thymer/` backend —
    `mcp-client.ts` (JSON-RPC push client), `desired-state.ts` (`buildDesiredState` → blob),
    `push.ts` (inbox-row upsert). All transpile clean. **Remaining:** annotations + contentSig in the
-   blob; rewire `item-data.ts` (store `inboxGuid`) + `sync-job.ts`/`sync-regular-item.ts` (build+push)
-   - prefs (Thymer connection); delete `tana/`; rename Zotana→Zothymer; retarget build → load .xpi in
-     Zotero. (Original fork map retained below for reference.)
-     Scaffold the Zotero half: fork/copy `zotero-to-tana` → `zotero-to-thymer` per the fork map below;
-     keep notifier / sync-manager / reference-builder / entities / annotations / content-signature /
-     item-data; **replace** the `src/content/tana/` client+schema+serializer with an MCP push of the
-     desired-state blob into the `Zotero Inbox` collection.
+   blob; rewire `item-data.ts` (store `inboxGuid`) + `sync-job.ts`/`sync-regular-item.ts` (build+push),
+   prefs (Thymer connection); delete `tana/`; rename Zotana→Zothymer; retarget build → load .xpi in
+   Zotero. (Original fork map retained below for reference.)
+   Scaffold the Zotero half: fork/copy `zotero-to-tana` → `zotero-to-thymer` per the fork map below;
+   keep notifier / sync-manager / reference-builder / entities / annotations / content-signature /
+   item-data; **replace** the `src/content/tana/` client+schema+serializer with an MCP push of the
+   desired-state blob into the `Zotero Inbox` collection.
 5. File the MCP multi-value bug (`notes/bugreport-mcp-multivalue-update.md`).
 
 ## Fork map (zotero-to-tana → zotero-to-thymer), from source recon 2026-06-27
