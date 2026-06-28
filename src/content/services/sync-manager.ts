@@ -106,7 +106,7 @@ export class SyncManager implements Service {
     const stored = getThymerSyncData(item);
     if (!stored?.contentSig) return true;
     try {
-      return contentSignature(item) !== stored.contentSig;
+      return (await contentSignature(item)) !== stored.contentSig;
     } catch (error) {
       logger.warn(
         'Failed to compute content signature; syncing item anyway',

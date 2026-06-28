@@ -5,7 +5,13 @@ import type { createRoot } from 'react-dom/client';
 import { logger } from '../utils';
 
 import { SyncConfigsTable } from './sync-configs-table';
-import { ZotanaPref, getZotanaPref, setZotanaPref } from './zothymer-pref';
+import {
+  PAGE_TITLE_FORMAT_L10N_IDS,
+  PageTitleFormat,
+  ZotanaPref,
+  getZotanaPref,
+  setZotanaPref,
+} from './zothymer-pref';
 
 type ReactDOMClient = typeof ReactDOM & { createRoot: typeof createRoot };
 
@@ -16,7 +22,60 @@ class Preferences {
     this.initTextPref('zothymer-thymerWorkspace', ZotanaPref.thymerWorkspace);
     this.initTextPref('zothymer-thymerEndpoint', ZotanaPref.thymerEndpoint);
 
+    await this.initPageTitleFormatSelect();
     await this.initSyncConfigsTable();
+  }
+
+  /**
+   * Populate + bind the "Reference Node Title" dropdown to the `pageTitleFormat`
+   * pref (consumed by `thymer/desired-state.ts` `buildTitle`). Options are the
+   * localized {@link PageTitleFormat} values; the Citation Key option needs Better
+   * BibTeX (it supplies the `citationKey` field), so it's disabled without it.
+   */
+  private async initPageTitleFormatSelect(): Promise<void> {
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const select = document.getElementById(
+      'zothymer-pageTitleFormat',
+    ) as HTMLSelectElement | null;
+    if (!select) {
+      logger.error("Failed to find select 'zothymer-pageTitleFormat'");
+      return;
+    }
+
+    const isBetterBibTeXActive = await this.isBetterBibTeXActive();
+    for (const format of Object.values(PageTitleFormat)) {
+      const label = await document.l10n.formatValue(
+        PAGE_TITLE_FORMAT_L10N_IDS[format],
+      );
+      const option = document.createElement('option');
+      option.value = format;
+      option.textContent = label || format;
+      if (format === PageTitleFormat.itemCitationKey && !isBetterBibTeXActive) {
+        option.disabled = true;
+      }
+      select.append(option);
+    }
+
+    select.value =
+      getZotanaPref(ZotanaPref.pageTitleFormat) ??
+      PageTitleFormat.itemAuthorDateCitation;
+    select.addEventListener('change', () => {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      setZotanaPref(
+        ZotanaPref.pageTitleFormat,
+        select.value as PageTitleFormat,
+      );
+    });
+  }
+
+  private async isBetterBibTeXActive(): Promise<boolean> {
+    const { AddonManager } = ChromeUtils.importESModule(
+      'resource://gre/modules/AddonManager.sys.mjs',
+    );
+    const addon = await AddonManager.getAddonByID(
+      'better-bibtex@iris-advies.com',
+    );
+    return Boolean(addon?.isActive);
   }
 
   /**

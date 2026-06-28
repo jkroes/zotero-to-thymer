@@ -15,6 +15,6 @@
 
 import { buildDesiredState } from '../thymer/desired-state';
 
-export function contentSignature(item: Zotero.Item): string {
-  return buildDesiredState(item).contentSig ?? '';
+export async function contentSignature(item: Zotero.Item): Promise<string> {
+  return (await buildDesiredState(item)).contentSig ?? '';
 }

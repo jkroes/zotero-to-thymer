@@ -7,7 +7,7 @@ zothymer-item-menu-sync =
 zothymer-tools-menu-preferences =
     .label = Zothymer Preferences…
 
-## Tana preferences
+## Thymer preferences
 
 zothymer-preferences-thymer-groupbox-heading = Thymer Connection
 zothymer-preferences-thymer-groupbox-description = Syncs items to Thymer through the desktop app's built-in MCP server (127.0.0.1:13100). Open Thymer, install + load the "Zotero Sync" reconciler plugin (it provisions the collections), then enter your workspace GUID below.
@@ -18,43 +18,20 @@ zothymer-preferences-thymer-endpoint-label = MCP Endpoint:
 zothymer-preferences-thymer-endpoint-input =
     .placeholder = http://127.0.0.1:13100/ (default)
 
-zothymer-preferences-tana-groupbox-heading = Tana Connection
-zothymer-preferences-tana-groupbox-description = Zotana syncs items to Tana through the Tana Local API. Enable the Local API in the Tana desktop app, then create a Personal Access Token from your account settings (top-right) and paste it below. (Note: this is NOT the cloud "Get API Token" / "Make API token" — that token is rejected by the Local API.)
-zothymer-preferences-tana-token-label = API Token:
-zothymer-preferences-tana-token-input =
-    .placeholder = Paste your Tana API token here
-zothymer-preferences-tana-parent-node-label = Parent Node ID:
-zothymer-preferences-tana-parent-node-input =
-    .placeholder = Node ID where new references are created
-zothymer-preferences-tana-base-url-label = Local API URL:
-zothymer-preferences-tana-base-url-input =
-    .placeholder = http://localhost:8262 (leave blank for default)
+## Reference preferences
 
-## Schema preferences
-
-zothymer-preferences-schema-groupbox-heading = Tana Schema
-zothymer-preferences-schema-groupbox-description = Name the reference supertag and its fields, and choose which fields sync. Use "Create / refresh schema in Tana" to create the tag and any missing fields in the selected workspace — existing ones are matched by name. If you rename a field here, rename it in Tana too so they stay linked.
-
-## Property preferences
-
-zothymer-preferences-properties-groupbox-heading = Property Preferences
-zothymer-preferences-properties-groupbox-description = Customize how item properties sync to Tana.
+zothymer-preferences-properties-groupbox-heading = Reference Preferences
+zothymer-preferences-properties-groupbox-description = Choose how each synced item is named — this sets the Reference record's Title (its node name) in Thymer. The item's actual title is always kept in the separate "Item Title" property.
 zothymer-preferences-page-title-format = Reference Node Title:
 
-## Page title format options
+## Page title format options (the select uses each message's VALUE, not a .label attribute)
 
-zothymer-page-title-format-item-author-date-citation =
-    .label = Item Author-Date Citation
-zothymer-page-title-format-item-citation-key =
-    .label = Item Citation Key (requires Better BibTeX)
-zothymer-page-title-format-item-full-citation =
-    .label = Item Full Citation
-zothymer-page-title-format-item-in-text-citation =
-    .label = Item In-Text Citation
-zothymer-page-title-format-item-short-title =
-    .label = Item Short Title
-zothymer-page-title-format-item-title =
-    .label = Item Title
+zothymer-page-title-format-item-author-date-citation = Item Author-Date Citation
+zothymer-page-title-format-item-citation-key = Item Citation Key (requires Better BibTeX)
+zothymer-page-title-format-item-full-citation = Item Full Citation
+zothymer-page-title-format-item-in-text-citation = Item In-Text Citation
+zothymer-page-title-format-item-short-title = Item Short Title
+zothymer-page-title-format-item-title = Item Title
 
 ## Sync preferences
 
@@ -76,8 +53,4 @@ zothymer-warning-referenced-fields = Referenced in Thymer, not updated: { $field
 ## Errors
 
 zothymer-error-missing-pref = Missing value for { $pref }. Please enter it in Zothymer preferences.
-zothymer-error-missing-tana-token = Tana API token not set. Please enter it in Zotana preferences.
-zothymer-error-missing-tana-parent-node = Tana parent node ID not set. Please enter it in Zotana preferences.
-zothymer-error-missing-tana-workspace = Tana workspace ID not set. Please enter it in Zotana preferences.
-zothymer-error-tana-unreachable = Tana Local API is not reachable. Open the Tana app and enable the Local API.
-zothymer-error-import-no-node-id = Tana did not return a node ID for the imported reference.
+zothymer-error-tana-unreachable = Thymer is not reachable. Open the Thymer desktop app (its MCP server listens on 127.0.0.1:13100) and load the "Zotero Sync" reconciler plugin.

@@ -4,10 +4,11 @@ import { isObject } from '../utils';
  * Zotero-side storage of the Thymer sync state for an item.
  *
  * A child link-attachment titled "Thymer" (visible under the item) carries a
- * durable JSON blob so re-syncs can find and update the same `Zotero Inbox` row.
- * In the all-SDK-writes architecture the Zotero side only ever touches the inbox
- * row, so the stored identity is the INBOX row GUID (not the final Reference
- * record — that GUID lives Thymer-side, written back by the reconciler).
+ * durable JSON blob so re-syncs can find and update the same `References` record.
+ * In the all-SDK-writes "Option A" architecture the Zotero side writes the
+ * desired-state blob straight onto the Reference's `Sync Data` field, so the
+ * stored identity is the REFERENCE record GUID (re-found by `Zotero Key` when the
+ * cache is absent).
  */
 
 const THYMER_SYNC_DATA_ID = 'thymer-sync-data';
@@ -16,8 +17,8 @@ const THYMER_LINK_TITLE = 'Thymer';
 export const THYMER_TAG_NAME = 'zothymer';
 
 export type ThymerSyncData = {
-  /** GUID of the item's row in the Thymer `Zotero Inbox` collection (upsert key). */
-  inboxGuid: string;
+  /** GUID of the item's record in the Thymer `References` collection (upsert key). */
+  referenceGuid: string;
   /** `<libraryID>:<itemKey>` — the identity the reconciler joins on. */
   zoteroKey: string;
   /**
@@ -29,8 +30,8 @@ export type ThymerSyncData = {
 };
 
 /** A `thymer:` deep link is cosmetic; the durable data is the attachment note. */
-function inboxURL(inboxGuid: string): string {
-  return `thymer:inbox:${encodeURIComponent(inboxGuid)}`;
+function referenceURL(referenceGuid: string): string {
+  return `thymer:ref:${encodeURIComponent(referenceGuid)}`;
 }
 
 function readSyncData(attachment: Zotero.Item): ThymerSyncData | undefined {
@@ -50,14 +51,14 @@ function readSyncData(attachment: Zotero.Item): ThymerSyncData | undefined {
 
   if (
     !isObject(parsed) ||
-    typeof parsed.inboxGuid !== 'string' ||
+    typeof parsed.referenceGuid !== 'string' ||
     typeof parsed.zoteroKey !== 'string'
   ) {
     return undefined;
   }
 
   return {
-    inboxGuid: parsed.inboxGuid,
+    referenceGuid: parsed.referenceGuid,
     zoteroKey: parsed.zoteroKey,
     contentSig:
       typeof parsed.contentSig === 'string' ? parsed.contentSig : undefined,
@@ -91,7 +92,7 @@ export function getThymerSyncData(
 function buildAttachmentNote(data: ThymerSyncData): string {
   const note = `
 <h2 style="background-color: #ff666680;">Do not modify or delete!</h2>
-<p>This link attachment lets Zotero update the Thymer inbox row for this item.</p>
+<p>This link attachment lets Zotero update the Thymer Reference record for this item.</p>
 <p>Last synced: ${new Date().toLocaleString()}</p>
 `;
   return `${note}<pre id="${THYMER_SYNC_DATA_ID}">${JSON.stringify(data)}</pre>`;
@@ -108,7 +109,7 @@ export async function saveThymerSyncData(
   }
 
   let attachment = attachments[0];
-  const url = inboxURL(data.inboxGuid);
+  const url = referenceURL(data.referenceGuid);
 
   if (attachment) {
     attachment.setField('url', url);

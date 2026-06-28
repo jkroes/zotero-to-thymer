@@ -1,10 +1,10 @@
 /**
  * Sync one regular Zotero item to Thymer.
  *
- * All-SDK-writes port: this is a thin "build blob → push inbox row → persist
- * identity" step. The Zotero side never writes the real `References` collection —
- * the Thymer SDK reconciler drains the inbox and does every structured write.
- * (Replaces the Tana create-vs-update upsert engine, which lived here.)
+ * All-SDK-writes "Option A" port: a thin "build blob → upsert the Reference's
+ * `Sync Data` → persist identity" step. The Zotero side only writes `Sync Data`
+ * (and `Zotero Key` on create); the Thymer SDK reconciler does every structured
+ * write. (Replaces the Tana create-vs-update upsert engine, which lived here.)
  */
 
 import {
@@ -26,18 +26,28 @@ export async function syncRegularItem(
   item: Zotero.Item,
   params: SyncJobParams,
 ): Promise<string[]> {
-  const blob = buildDesiredState(item);
+  const blob = await buildDesiredState(item);
+  const prior = getThymerSyncData(item);
 
-  const prior = getThymerSyncData(item)?.inboxGuid;
-  const { inboxGuid } = await pushDesiredState(
+  // contentSig skip gate (sig stays Zotero-side): if this item was already synced
+  // and its synced content is unchanged, the push would be a no-op (the reconciler
+  // value-diffs anyway), so skip the MCP round-trip entirely.
+  if (
+    prior?.referenceGuid &&
+    prior.contentSig &&
+    prior.contentSig === blob.contentSig
+  ) {
+    return [];
+  }
+
+  const { referenceGuid } = await pushDesiredState(
     params.client,
-    params.inboxCollectionGuid,
     blob,
-    prior,
+    prior?.referenceGuid,
   );
 
   await saveThymerSyncData(item, {
-    inboxGuid,
+    referenceGuid,
     zoteroKey: blob.zoteroKey,
     contentSig: blob.contentSig,
   });

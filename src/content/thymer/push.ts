@@ -1,102 +1,86 @@
 /**
- * Push a desired-state blob into the Thymer `Zotero Inbox` collection over MCP.
+ * Push a desired-state blob into the Thymer `References` collection over MCP
+ * ("Option A": no inbox).
  *
- * This is the Thymer port's replacement for the Tana write path
- * (`sync/sync-regular-item.ts` + `tana/schema.ts`): in the all-SDK-writes
- * architecture the Zotero side does NOT touch the real `References` collection
- * at all — it only stages one inbox row per item (create, or update in place by
- * identity), and the SDK reconciler drains it. No schema bootstrap here either:
- * the reconciler self-provisions every collection on load.
+ * The Zotero side is a DUMB PIPE: it addresses the Reference record DIRECTLY by
+ * its `Zotero Key` (strict-equality `search`) and writes the blob into that
+ * record's transient `Sync Data` text field. The SDK reconciler watches
+ * `References`, drains+clears `Sync Data`, and does every structured write MCP
+ * can't (scalars + multi-value relations + entities + annotations). No schema
+ * bootstrap here: the reconciler self-provisions every collection on load.
  *
- * Identity: the durable upsert key is the inbox row's GUID, cached Zotero-side in
- * the item's link-attachment (see data/item-data.ts). When that's absent (first
- * sync, or store lost), fall back to finding the row by its `Zotero Key`
- * property. `update_record_property` is safe for every inbox field (all
- * single-value text).
+ * Identity: the durable upsert key is the Reference record GUID, cached
+ * Zotero-side in the item's link-attachment (see data/item-data.ts). When that's
+ * absent (first sync, or store lost), we re-find the record by its `Zotero Key`.
+ * Both fields the Zotero side touches (`Zotero Key`, `Sync Data`) are
+ * single-value text, so `update_record_property` / `create_record` are safe
+ * (and both accept writes despite the fields being `read_only` to the user —
+ * memory: readonly-property-writes).
  */
 
 import { type DesiredState } from './desired-state';
 import type { ThymerMcpClient } from './mcp-client';
 
-export const INBOX_COLLECTION_NAME = 'Zotero Inbox';
+export const REFERENCES_COLLECTION_NAME = 'References';
 
 const PROP = {
   zoteroKey: 'Zotero Key',
-  desired: 'Desired',
-  status: 'Status',
-  error: 'Error',
+  syncData: 'Sync Data',
 } as const;
 
 export type PushResult = {
-  /** GUID of the inbox row (new or reused) — cache this Zotero-side. */
-  inboxGuid: string;
+  /** GUID of the Reference record (new or reused) — cache this Zotero-side. */
+  referenceGuid: string;
   created: boolean;
 };
 
 /**
- * Upsert the inbox row for one item. `priorInboxGuid` is the cached row GUID from
- * a previous sync (preferred); when omitted we search by `Zotero Key`.
+ * Upsert the Reference record for one item. `priorReferenceGuid` is the cached
+ * GUID from a previous sync (preferred); when omitted we re-find the record by
+ * its `Zotero Key`. Either way we only write the `Sync Data` blob — the
+ * reconciler does the rest.
  */
 export async function pushDesiredState(
   client: ThymerMcpClient,
-  inboxCollectionGuid: string,
   blob: DesiredState,
-  priorInboxGuid?: string,
+  priorReferenceGuid?: string,
 ): Promise<PushResult> {
-  const desiredJson = JSON.stringify(blob);
+  const syncDataJson = JSON.stringify(blob);
 
   const existingGuid =
-    priorInboxGuid ??
-    (await findInboxRowByKey(client, inboxCollectionGuid, blob.zoteroKey));
+    priorReferenceGuid ?? (await findReferenceByKey(client, blob.zoteroKey));
 
   if (existingGuid) {
-    // Re-stage in place: overwrite the blob, reset status so the reconciler
-    // re-drains, clear any prior error.
-    await client.updateRecordProperty(existingGuid, PROP.desired, desiredJson);
-    await client.updateRecordProperty(existingGuid, PROP.error, '');
-    await client.updateRecordProperty(existingGuid, PROP.status, 'pending');
-    return { inboxGuid: existingGuid, created: false };
+    await client.updateRecordProperty(
+      existingGuid,
+      PROP.syncData,
+      syncDataJson,
+    );
+    return { referenceGuid: existingGuid, created: false };
   }
 
-  const inboxGuid = await client.createRecord(
-    inboxCollectionGuid,
-    `inbox ${blob.zoteroKey}`,
+  // New item: create the Reference with its node name + identity + the blob.
+  const referenceGuid = await client.createRecord(
+    REFERENCES_COLLECTION_NAME,
+    blob.title,
     {
       [PROP.zoteroKey]: blob.zoteroKey,
-      [PROP.status]: 'pending',
-      [PROP.desired]: desiredJson,
+      [PROP.syncData]: syncDataJson,
     },
   );
-  return { inboxGuid, created: true };
+  return { referenceGuid, created: true };
 }
 
-/** Find an existing inbox row's GUID by its `Zotero Key` property value. */
-async function findInboxRowByKey(
+/**
+ * Find an existing Reference record's GUID by its `Zotero Key`, using strict
+ * equality so a partial/fuzzy match can't return the wrong record (memory:
+ * thymer-mcp-search-strict-equality). The key is library-scoped
+ * (`<libraryID>:<itemKey>`), so it's unique.
+ */
+function findReferenceByKey(
   client: ThymerMcpClient,
-  inboxCollectionGuid: string,
   zoteroKey: string,
 ): Promise<string | null> {
-  const rows = await client.listRecords(inboxCollectionGuid);
-  for (const row of rows) {
-    if (readTextProp(row.properties, PROP.zoteroKey) === zoteroKey) {
-      return row.guid;
-    }
-  }
-  return null;
-}
-
-/** Read a `[type, value]` property tuple as text (list_records shape). */
-function readTextProp(
-  properties: Record<string, unknown> | undefined,
-  name: string,
-): string | null {
-  const entry = properties?.[name];
-  if (
-    Array.isArray(entry) &&
-    entry.length >= 2 &&
-    typeof entry[1] === 'string'
-  ) {
-    return entry[1];
-  }
-  return null;
+  const query = `@${REFERENCES_COLLECTION_NAME}."${PROP.zoteroKey}" === "${zoteroKey}"`;
+  return client.searchRecordGuid(query);
 }

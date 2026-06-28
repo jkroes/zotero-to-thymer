@@ -5,7 +5,7 @@ import {
   getZotanaPref,
 } from '../prefs/zothymer-pref';
 import { ThymerMcpClient } from '../thymer/mcp-client';
-import { INBOX_COLLECTION_NAME } from '../thymer/push';
+import { REFERENCES_COLLECTION_NAME } from '../thymer/push';
 import { getLocalizedErrorMessage, logger } from '../utils';
 
 import { ProgressWindow, type ItemWarning } from './progress-window';
@@ -13,8 +13,6 @@ import { syncRegularItem } from './sync-regular-item';
 
 export type SyncJobParams = {
   client: ThymerMcpClient;
-  /** GUID of the Thymer `Zotero Inbox` collection (provisioned by the reconciler). */
-  inboxCollectionGuid: string;
 };
 
 export async function performSyncJob(
@@ -52,17 +50,20 @@ async function prepareSyncJob(window: Window): Promise<SyncJobParams> {
     );
   }
 
-  const inboxCollectionGuid = await client.findCollectionGuid(
-    INBOX_COLLECTION_NAME,
+  // Preflight: the reconciler provisions `References` on load. If it's missing,
+  // the reconciler plugin isn't installed/loaded — fail with a clear message
+  // rather than minting a stray collection via create_record.
+  const referencesGuid = await client.findCollectionGuid(
+    REFERENCES_COLLECTION_NAME,
   );
-  if (!inboxCollectionGuid) {
+  if (!referencesGuid) {
     throw new LocalizableError(
-      `Thymer collection "${INBOX_COLLECTION_NAME}" not found. Install and load the Zotero Sync reconciler plugin in Thymer (it provisions the collection on load).`,
+      `Thymer collection "${REFERENCES_COLLECTION_NAME}" not found. Install and load the Zotero Sync reconciler plugin in Thymer (it provisions the collection on load).`,
       'zothymer-error-tana-unreachable',
     );
   }
 
-  return { client, inboxCollectionGuid };
+  return { client };
 }
 
 async function syncItems(

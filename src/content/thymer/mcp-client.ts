@@ -4,13 +4,15 @@
  * replacement for `tana/client.ts`: instead of Tana's plain REST API, Thymer
  * exposes everything over MCP, so we speak JSON-RPC + `tools/call`.
  *
- * In the all-SDK-writes architecture the Zotero plugin is a DUMB PIPE: it only
- * needs to create/find/update records in the `Zotero Inbox` collection (the
- * SDK-side reconciler plugin does every structured write). So this client is
- * deliberately small — initialize, list_collections, list_records,
- * create_record, update_record_property. No multi-value writes (MCP can't do
- * them on update; that's the reconciler's whole job — see notes in the
- * thymer-playground repo: thymer-reference-model.md §4).
+ * In the all-SDK-writes architecture ("Option A": no inbox) the Zotero plugin is
+ * a DUMB PIPE: per item it finds the `References` record by its `Zotero Key`
+ * (strict-equality `search`) and writes the desired-state blob into that record's
+ * transient `Sync Data` field — `create_record` for a new item,
+ * `update_record_property` for an existing one. The SDK-side reconciler plugin
+ * does every structured write. So this client is deliberately small — initialize,
+ * list_collections, search, create_record, update_record_property. No multi-value
+ * writes (MCP can't do them on update; that's the reconciler's whole job — see
+ * notes in the thymer-playground repo: thymer-reference-model.md §4).
  *
  * Protocol verified live via the spike (initialize → tools/call round-trip):
  *  - POST JSON-RPC to `/`; Accept must allow text/event-stream.
@@ -32,13 +34,6 @@ export interface ThymerMcpClientOptions {
   fetch?: typeof globalThis.fetch;
   /** MCP protocol version to advertise. */
   protocolVersion?: string;
-}
-
-export interface ThymerRecordSummary {
-  guid: string;
-  name: string;
-  /** property name -> [type, value] tuples, as returned by list_records. */
-  properties?: Record<string, unknown>;
 }
 
 /** Thrown for JSON-RPC errors and tool `isError` responses. */
@@ -100,7 +95,7 @@ export class ThymerMcpClient {
     }
   }
 
-  /** Resolve a collection GUID by name (the reconciler provisions `Zotero Inbox`). */
+  /** Resolve a collection GUID by name (the reconciler provisions `References`). */
   public async findCollectionGuid(name: string): Promise<string | null> {
     const out = await this.callTool('list_collections', {});
     const list = (out?.collections ?? out ?? []) as Array<{
@@ -111,14 +106,26 @@ export class ThymerMcpClient {
     return hit?.guid ?? null;
   }
 
-  /** All records in a collection (used to find an existing inbox row by key). */
-  public async listRecords(
-    collection: string,
-    limit = 1000,
-  ): Promise<ThymerRecordSummary[]> {
-    const out = await this.callTool('list_records', { collection, limit });
-    const recs = (out?.records ?? []) as ThymerRecordSummary[];
-    return Array.isArray(recs) ? recs : [];
+  /**
+   * Find a record GUID by an exact custom-property value via the MCP `search`
+   * tool's strict-equality query syntax, e.g.
+   * `@References."Zotero Key" === "1:VS869NLS"`. `===` is STRICT (full-value
+   * match); `=` would be fuzzy — see memory `thymer-mcp-search-strict-equality`.
+   * Returns the first matching record's guid, or null.
+   *
+   * Result envelope confirmed live 2026-06-28 (workspace W3TZX0YZ…): records come
+   * back under `matching_records: [{guid, name, collection_guid, type}]` (line
+   * items, if any, are under `pages`/`total_items` instead). The collection tag
+   * (`@References`) must be a single token — a spaced collection name breaks the
+   * query parser ("Unknown magic tag"); the real collection is `References`.
+   */
+  public async searchRecordGuid(query: string): Promise<string | null> {
+    const out = await this.callTool('search', { query, limit: 5 });
+    const records = (out?.matching_records ?? []) as Array<{ guid?: string }>;
+    for (const record of Array.isArray(records) ? records : []) {
+      if (typeof record.guid === 'string' && record.guid) return record.guid;
+    }
+    return null;
   }
 
   /** Create a record; returns its GUID. Optional initial scalar properties. */
@@ -140,9 +147,9 @@ export class ThymerMcpClient {
 
   /**
    * Set a single scalar property on an existing record. SAFE here because the
-   * inbox row's fields (Desired/Status/Result Guid) are all single-value text —
-   * `update_record_property` only mangles multi-value fields, which never live on
-   * the inbox row (those are the reconciler's job on the real records).
+   * only field the Zotero side writes is `Sync Data` (single-value text) —
+   * `update_record_property` only mangles multi-value fields, which are entirely
+   * the reconciler's job (it reads `Sync Data` and does the structured writes).
    */
   public async updateRecordProperty(
     record: string,

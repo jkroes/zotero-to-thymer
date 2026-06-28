@@ -8,18 +8,30 @@ is unfinished. Authoritative context lives in the **thymer-playground** repo:
 - Blob/reconciler contract: `~/repos/thymer-playground/notes/zotero-thymer-inbox-schema.md`
 - The **other half** (already built + live-verified): `~/repos/thymer-playground/plugins/zotero-thymer-sync/`
 
-## Architecture (all-SDK-writes)
+## Architecture (all-SDK-writes, "Option A": no inbox)
 
-The Zotero plugin is a **dumb pipe**: per item it builds a desired-state JSON blob and stages **one
-row** in Thymer's `Zotero Inbox` collection over MCP (`127.0.0.1:13100`). A Thymer **SDK reconciler
-plugin** (separate, in thymer-playground) drains the inbox and does every structured write into the
-real `References` collection — including the multi-value relations MCP can't write. The Zotero side
-never touches `References` and does no schema bootstrap (the reconciler self-provisions all collections).
+The Zotero plugin is a **dumb pipe**: per item it builds a desired-state JSON blob and writes it into
+the matching `References` record's transient **`Sync Data`** field over MCP (`127.0.0.1:13100`) —
+finding the record by `@References."Zotero Key" === "<key>"` (strict `===`) and `create_record`-ing it
+if absent. A Thymer **SDK reconciler plugin** (separate, in thymer-playground) watches `References`,
+drains+clears `Sync Data`, and does every structured write into `References` — including the
+multi-value relations MCP can't write. There is **no `Zotero Inbox` collection**. The Zotero side does
+no schema bootstrap (the reconciler self-provisions all collections).
 
-## Status: data path fully wired (2026-06-27)
+## Status: Option A rework done (2026-06-28, session 5) — builds clean, not yet run in Zotero
 
-The Zotero→Thymer sync path now compiles end-to-end (modulo `node_modules` — run `pnpm install`).
-Build the .xpi and test in Zotero against a running Thymer with the reconciler plugin loaded.
+The Zotero→Thymer sync path is fully on **Option A** (no inbox) and compiles end-to-end (`pnpm build`).
+`push.ts` searches `@References."Zotero Key" === "<key>"` → `update_record_property(guid, "Sync Data",
+blob)` if found, else `create_record("References", title, {Zotero Key, Sync Data})`; `mcp-client.ts`
+has `searchRecordGuid` (dropped `list_records`); `sync-regular-item.ts` has the contentSig skip gate;
+the identity store is `referenceGuid` (`item-data.ts`); sync-job preflights `References`. The blob
+(`desired-state.ts`) carries the full zotana CATALOG + honors the title-format pref and Quick Copy
+citation style. The MCP `search` result envelope is **confirmed live** (records under
+`matching_records:[{guid,…}]`; `searchRecordGuid` reads it). Build the .xpi and test in Zotero against a
+running Thymer with the reconciler plugin loaded.
+
+> The "Done"/"TODO" sections below describe the EARLIER inbox-based wiring and are superseded by the
+> Option A status above; kept for history.
 
 ## Done
 
