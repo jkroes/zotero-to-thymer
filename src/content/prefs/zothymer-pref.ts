@@ -25,15 +25,16 @@ export const PAGE_TITLE_FORMAT_L10N_IDS: Record<
   FluentMessageId
 > = {
   [PageTitleFormat.itemAuthorDateCitation]:
-    'zotana-page-title-format-item-author-date-citation',
+    'zothymer-page-title-format-item-author-date-citation',
   [PageTitleFormat.itemCitationKey]:
-    'zotana-page-title-format-item-citation-key',
+    'zothymer-page-title-format-item-citation-key',
   [PageTitleFormat.itemFullCitation]:
-    'zotana-page-title-format-item-full-citation',
+    'zothymer-page-title-format-item-full-citation',
   [PageTitleFormat.itemInTextCitation]:
-    'zotana-page-title-format-item-in-text-citation',
-  [PageTitleFormat.itemShortTitle]: 'zotana-page-title-format-item-short-title',
-  [PageTitleFormat.itemTitle]: 'zotana-page-title-format-item-title',
+    'zothymer-page-title-format-item-in-text-citation',
+  [PageTitleFormat.itemShortTitle]:
+    'zothymer-page-title-format-item-short-title',
+  [PageTitleFormat.itemTitle]: 'zothymer-page-title-format-item-title',
 };
 
 type ZotanaPrefValue = Partial<{
@@ -45,7 +46,10 @@ type ZotanaPrefValue = Partial<{
 }>;
 
 function buildFullPrefName(pref: ZotanaPref): string {
-  return `extensions.zotana.${pref}`;
+  // `extensions.zothymer.*` (NOT `extensions.zotana.*`): the pref branch must be unique per plugin,
+  // or this plugin and the Zotana plugin read/write the SAME stored prefs (incl. the enabled-
+  // collections config and the Thymer workspace GUID).
+  return `extensions.zothymer.${pref}`;
 }
 
 function getBooleanPref(value: Zotero.Prefs.Value): boolean | undefined {

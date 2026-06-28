@@ -6,7 +6,7 @@ import fs from 'fs-extra';
 import { relativeToRoot, srcDir } from './utils/paths.mts';
 
 const localeDir = path.join(srcDir, 'locale');
-const ftlFile = path.join(localeDir, 'en-US/zotana.ftl');
+const ftlFile = path.join(localeDir, 'en-US/zothymer.ftl');
 const tsFile = path.join(localeDir, 'fluent-types.ts');
 
 console.log(`Generating TypeScript types from ${relativeToRoot(ftlFile)}`);

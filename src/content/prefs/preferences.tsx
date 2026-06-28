@@ -5,7 +5,7 @@ import type { createRoot } from 'react-dom/client';
 import { logger } from '../utils';
 
 import { SyncConfigsTable } from './sync-configs-table';
-import { ZotanaPref, getZotanaPref, setZotanaPref } from './zotana-pref';
+import { ZotanaPref, getZotanaPref, setZotanaPref } from './zothymer-pref';
 
 type ReactDOMClient = typeof ReactDOM & { createRoot: typeof createRoot };
 
@@ -13,8 +13,8 @@ class Preferences {
   public async init(): Promise<void> {
     await Zotero.uiReadyPromise;
 
-    this.initTextPref('zotana-thymerWorkspace', ZotanaPref.thymerWorkspace);
-    this.initTextPref('zotana-thymerEndpoint', ZotanaPref.thymerEndpoint);
+    this.initTextPref('zothymer-thymerWorkspace', ZotanaPref.thymerWorkspace);
+    this.initTextPref('zothymer-thymerEndpoint', ZotanaPref.thymerEndpoint);
 
     await this.initSyncConfigsTable();
   }
@@ -43,13 +43,13 @@ class Preferences {
   private async initSyncConfigsTable(): Promise<void> {
     // oxlint-disable-next-line typescript/no-non-null-assertion
     const syncConfigsTableContainer = document.getElementById(
-      'zotana-syncConfigsTable-container',
+      'zothymer-syncConfigsTable-container',
     )!;
     const collection = await document.l10n.formatValue(
-      'zotana-preferences-collection-column',
+      'zothymer-preferences-collection-column',
     );
     const syncEnabled = await document.l10n.formatValue(
-      'zotana-preferences-sync-enabled-column',
+      'zothymer-preferences-sync-enabled-column',
     );
     const columnLabels = {
       collectionFullName: collection || 'Collection',
@@ -69,8 +69,9 @@ class Preferences {
 }
 
 type WindowWithZotanaPreferences = typeof window & {
-  Zotana_Preferences: Preferences;
+  Zothymer_Preferences: Preferences;
 };
 
 // oxlint-disable-next-line typescript/no-unsafe-type-assertion
-(window as WindowWithZotanaPreferences).Zotana_Preferences = new Preferences();
+(window as WindowWithZotanaPreferences).Zothymer_Preferences =
+  new Preferences();

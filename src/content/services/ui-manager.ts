@@ -5,7 +5,10 @@ import type { EventManager } from './event-manager';
 import type { PreferencePaneManager } from './preference-pane-manager';
 import type { Service, ServiceParams } from './service';
 
-const FTL_FILE = 'zotana.ftl';
+// Unique filename: Zotero registers plugin FTLs into a GLOBAL registry keyed by filename, so
+// reusing the upstream `zotana.ftl` collides with the still-installable Zotana plugin (its file
+// shadows ours → our new thymer-* strings render blank). Keep this distinct.
+const FTL_FILE = 'zothymer.ftl';
 
 export class UIManager implements Service {
   private eventManager!: EventManager;
@@ -54,7 +57,7 @@ export class UIManager implements Service {
   private initCollectionMenuItem(window: Zotero.ZoteroWindow) {
     this.createMenuItem({
       window,
-      l10nId: 'zotana-collection-menu-sync',
+      l10nId: 'zothymer-collection-menu-sync',
       parentId: 'zotero-collectionmenu',
       onCommand: () => {
         const collection =
@@ -70,7 +73,7 @@ export class UIManager implements Service {
   private initItemMenuItem(window: Zotero.ZoteroWindow) {
     this.createMenuItem({
       window,
-      l10nId: 'zotana-item-menu-sync',
+      l10nId: 'zothymer-item-menu-sync',
       parentId: 'zotero-itemmenu',
       onCommand: () => {
         const items = Zotero.getActiveZoteroPane()?.getSelectedItems(false);
@@ -90,7 +93,7 @@ export class UIManager implements Service {
   private initToolsMenuItem(window: Zotero.ZoteroWindow) {
     this.createMenuItem({
       window,
-      l10nId: 'zotana-tools-menu-preferences',
+      l10nId: 'zothymer-tools-menu-preferences',
       parentId: 'menu_ToolsPopup',
       onCommand: () => {
         this.preferencePaneManager.openPreferences();

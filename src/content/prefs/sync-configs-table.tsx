@@ -172,7 +172,7 @@ export class SyncConfigsTable extends React.Component<Props> {
 
     return (
       <VirtualizedTable
-        id="zotana-syncConfigsTable"
+        id="zothymer-syncConfigsTable"
         columns={columns}
         getRowCount={this.getRowCount}
         getRowString={this.getRowString}

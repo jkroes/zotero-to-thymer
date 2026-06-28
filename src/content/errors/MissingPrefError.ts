@@ -1,4 +1,4 @@
-import type { ZotanaPref } from '../prefs/zotana-pref';
+import type { ZotanaPref } from '../prefs/zothymer-pref';
 
 import { ErrorL10nId, LocalizableError } from './LocalizableError';
 
@@ -11,7 +11,7 @@ export class MissingPrefError extends LocalizableError {
   public constructor(pref: ZotanaPref) {
     super(
       `Missing pref: ${pref}`,
-      L10N_IDS[pref] || 'zotana-error-missing-pref',
+      L10N_IDS[pref] || 'zothymer-error-missing-pref',
       { l10nArgs: { pref } },
     );
   }

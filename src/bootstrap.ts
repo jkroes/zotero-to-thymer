@@ -2,7 +2,7 @@ import type { ZoteroWithZotana } from './content/zotana';
 
 declare const Zotero: ZoteroWithZotana;
 
-const LOG_PREFIX = '[Zotana] ';
+const LOG_PREFIX = '[Zothymer] ';
 
 function log(msg: string) {
   Zotero.debug(`${LOG_PREFIX}${msg}`);
@@ -42,7 +42,7 @@ async function startup(
 
   Services.scriptloader.loadSubScript(rootURI + 'content/zotana.js');
 
-  await Zotero.Zotana?.startup({ pluginID: id, rootURI, version });
+  await Zotero.Zothymer?.startup({ pluginID: id, rootURI, version });
 }
 
 /**
@@ -52,7 +52,7 @@ async function startup(
  */
 // oxlint-disable-next-line no-unused-vars
 function onMainWindowLoad({ window }: { window: Zotero.ZoteroWindow }) {
-  Zotero.Zotana?.addToWindow(window);
+  Zotero.Zothymer?.addToWindow(window);
 }
 
 /**
@@ -62,7 +62,7 @@ function onMainWindowLoad({ window }: { window: Zotero.ZoteroWindow }) {
  */
 // oxlint-disable-next-line no-unused-vars
 function onMainWindowUnload({ window }: { window: Zotero.ZoteroWindow }) {
-  Zotero.Zotana?.removeFromWindow(window);
+  Zotero.Zothymer?.removeFromWindow(window);
 }
 
 /**
@@ -75,9 +75,9 @@ function onMainWindowUnload({ window }: { window: Zotero.ZoteroWindow }) {
 function shutdown({ version }: BootstrapData, _reason: Zotero.Plugins.REASONS) {
   log(`Shutting down v${version}`);
 
-  Zotero.Zotana?.shutdown();
+  Zotero.Zothymer?.shutdown();
 
-  delete Zotero.Zotana;
+  delete Zotero.Zothymer;
 }
 
 /**

@@ -6,7 +6,7 @@ import type { Zotana, ZoteroWithZotana } from '../zotana';
  * the preferences window, to access global Zotana functionality.
  */
 export function getGlobalZotana(): Zotana {
-  const zotana = (Zotero as ZoteroWithZotana).Zotana;
+  const zotana = (Zotero as ZoteroWithZotana).Zothymer;
   if (zotana) return zotana;
-  throw new Error('Zotero.Zotana object not available');
+  throw new Error('Zotero.Zothymer object not available');
 }

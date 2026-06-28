@@ -3,7 +3,7 @@ import {
   ZotanaPref,
   getRequiredZotanaPref,
   getZotanaPref,
-} from '../prefs/zotana-pref';
+} from '../prefs/zothymer-pref';
 import { ThymerMcpClient } from '../thymer/mcp-client';
 import { INBOX_COLLECTION_NAME } from '../thymer/push';
 import { getLocalizedErrorMessage, logger } from '../utils';
@@ -48,7 +48,7 @@ async function prepareSyncJob(window: Window): Promise<SyncJobParams> {
   if (!(await client.ping())) {
     throw new LocalizableError(
       'Thymer is not reachable. Open the Thymer desktop app (its MCP server listens on 127.0.0.1:13100).',
-      'zotana-error-tana-unreachable',
+      'zothymer-error-tana-unreachable',
     );
   }
 
@@ -58,7 +58,7 @@ async function prepareSyncJob(window: Window): Promise<SyncJobParams> {
   if (!inboxCollectionGuid) {
     throw new LocalizableError(
       `Thymer collection "${INBOX_COLLECTION_NAME}" not found. Install and load the Zotero Sync reconciler plugin in Thymer (it provisions the collection on load).`,
-      'zotana-error-tana-unreachable',
+      'zothymer-error-tana-unreachable',
     );
   }
 

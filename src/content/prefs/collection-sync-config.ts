@@ -1,6 +1,6 @@
 import { isObject, logger } from '../utils';
 
-import { getZotanaPref, ZotanaPref, setZotanaPref } from './zotana-pref';
+import { getZotanaPref, ZotanaPref, setZotanaPref } from './zothymer-pref';
 
 export type CollectionSyncConfig = {
   syncEnabled: boolean;

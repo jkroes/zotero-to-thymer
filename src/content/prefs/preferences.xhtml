@@ -1,53 +1,53 @@
 <linkset>
-  <html:link rel="localization" href="zotana.ftl" />
+  <html:link rel="localization" href="zothymer.ftl" />
 </linkset>
 
-<!-- `Zotana_Preferences` is defined in `src/content/prefs/preferences.tsx` -->
-<groupbox class="zotana-groupbox" onload="Zotana_Preferences.init()">
+<!-- `Zothymer_Preferences` is defined in `src/content/prefs/preferences.tsx` -->
+<groupbox class="zothymer-groupbox" onload="Zothymer_Preferences.init()">
   <label>
-    <html:h2 data-l10n-id="zotana-preferences-thymer-groupbox-heading" />
+    <html:h2 data-l10n-id="zothymer-preferences-thymer-groupbox-heading" />
   </label>
-  <label data-l10n-id="zotana-preferences-thymer-groupbox-description" />
-  <hbox align="center" class="zotana-margin-block-start">
+  <label data-l10n-id="zothymer-preferences-thymer-groupbox-description" />
+  <hbox align="center" class="zothymer-margin-block-start">
     <label
-      control="zotana-thymerWorkspace"
-      data-l10n-id="zotana-preferences-thymer-workspace-label"
+      control="zothymer-thymerWorkspace"
+      data-l10n-id="zothymer-preferences-thymer-workspace-label"
     />
     <html:input
-      data-l10n-id="zotana-preferences-thymer-workspace-input"
-      id="zotana-thymerWorkspace"
+      data-l10n-id="zothymer-preferences-thymer-workspace-input"
+      id="zothymer-thymerWorkspace"
       type="text"
     />
   </hbox>
-  <hbox align="center" class="zotana-margin-block-start">
+  <hbox align="center" class="zothymer-margin-block-start">
     <label
-      control="zotana-thymerEndpoint"
-      data-l10n-id="zotana-preferences-thymer-endpoint-label"
+      control="zothymer-thymerEndpoint"
+      data-l10n-id="zothymer-preferences-thymer-endpoint-label"
     />
     <html:input
-      data-l10n-id="zotana-preferences-thymer-endpoint-input"
-      id="zotana-thymerEndpoint"
+      data-l10n-id="zothymer-preferences-thymer-endpoint-input"
+      id="zothymer-thymerEndpoint"
       type="text"
     />
   </hbox>
 </groupbox>
 
-<groupbox class="zotana-groupbox">
+<groupbox class="zothymer-groupbox">
   <label>
-    <html:h2 data-l10n-id="zotana-preferences-sync-groupbox-heading" />
+    <html:h2 data-l10n-id="zothymer-preferences-sync-groupbox-heading" />
   </label>
-  <label data-l10n-id="zotana-preferences-sync-groupbox-description1" />
-  <label data-l10n-id="zotana-preferences-sync-groupbox-description2" />
+  <label data-l10n-id="zothymer-preferences-sync-groupbox-description1" />
+  <label data-l10n-id="zothymer-preferences-sync-groupbox-description2" />
   <hbox
-    class="zotana-margin-block-start zotana-margin-block-end virtualized-table-container"
+    class="zothymer-margin-block-start zothymer-margin-block-end virtualized-table-container"
     flex="1"
   >
-    <html:div id="zotana-syncConfigsTable-container" />
+    <html:div id="zothymer-syncConfigsTable-container" />
   </hbox>
   <checkbox
-    data-l10n-id="zotana-preferences-sync-on-modify-items"
-    id="zotana-syncOnModifyItems"
+    data-l10n-id="zothymer-preferences-sync-on-modify-items"
+    id="zothymer-syncOnModifyItems"
     native="true"
-    preference="extensions.zotana.syncOnModifyItems"
+    preference="extensions.zothymer.syncOnModifyItems"
   />
 </groupbox>

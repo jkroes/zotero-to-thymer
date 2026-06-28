@@ -1,6 +1,6 @@
 import { getThymerSyncData } from '../data/item-data';
 import { loadSyncEnabledCollectionIDs } from '../prefs/collection-sync-config';
-import { getZotanaPref, ZotanaPref } from '../prefs/zotana-pref';
+import { getZotanaPref, ZotanaPref } from '../prefs/zothymer-pref';
 import { contentSignature } from '../sync/content-signature';
 import { performSyncJob } from '../sync/sync-job';
 import { getAllCollectionItems, logger } from '../utils';

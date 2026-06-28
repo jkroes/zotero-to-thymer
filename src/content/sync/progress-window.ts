@@ -16,7 +16,7 @@ export class ProgressWindow {
   }
 
   public async show() {
-    const headline = await this.l10n.formatValue('zotana-progress-headline');
+    const headline = await this.l10n.formatValue('zothymer-progress-headline');
     this.progressWindow.changeHeadline(headline || 'Syncing items to Tana…');
     this.progressWindow.show();
     this.itemProgress = new this.progressWindow.ItemProgress('document', '');
@@ -25,7 +25,7 @@ export class ProgressWindow {
   public async updateText(step: number) {
     const args = { step, total: this.itemCount };
     const message =
-      (await this.l10n.formatValue('zotana-progress-item', args)) ||
+      (await this.l10n.formatValue('zothymer-progress-item', args)) ||
       `Item ${step} of ${this.itemCount}`;
     this.itemProgress.setText(message);
   }
@@ -43,7 +43,7 @@ export class ProgressWindow {
 
     // Referenced fields were left unchanged. Surface them and keep the window
     // open (no close timer) so the user notices and can resolve them in Tana.
-    const headline = await this.l10n.formatValue('zotana-warning-headline');
+    const headline = await this.l10n.formatValue('zothymer-warning-headline');
     this.progressWindow.changeHeadline(headline || 'Synced with warnings');
 
     for (const { item, fields } of warnings) {
@@ -54,7 +54,7 @@ export class ProgressWindow {
       ).setProgress(100);
 
       const message =
-        (await this.l10n.formatValue('zotana-warning-referenced-fields', {
+        (await this.l10n.formatValue('zothymer-warning-referenced-fields', {
           fields: fields.join(', '),
         })) || `Referenced in Tana, not updated: ${fields.join(', ')}`;
       void new this.progressWindow.ItemProgress('', message);
