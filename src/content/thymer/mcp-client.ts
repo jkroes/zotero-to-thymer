@@ -87,7 +87,8 @@ export class ThymerMcpClient {
   public async ping(): Promise<boolean> {
     try {
       await this.initialize();
-      await this.callTool('thymer_ping', {});
+      // thymer_ping is not workspace-scoped (its schema has additionalProperties: false).
+      await this.callTool('thymer_ping', {}, { includeWorkspace: false });
       return true;
     } catch {
       return false;
@@ -164,13 +165,17 @@ export class ThymerMcpClient {
   private async callTool(
     name: string,
     args: Record<string, unknown>,
+    { includeWorkspace = true }: { includeWorkspace?: boolean } = {},
     // The MCP boundary is untyped JSON; callers assert the concrete shape.
     // oxlint-disable-next-line typescript/no-explicit-any
   ): Promise<any> {
     await this.initialize();
+    const toolArgs = includeWorkspace
+      ? { workspace: this.workspace, ...args }
+      : args;
     const result = await this.rpc('tools/call', {
       name,
-      arguments: { workspace: this.workspace, ...args },
+      arguments: toolArgs,
     });
     if (result?.isError) {
       throw new ThymerMcpError(name, result, `tool ${name} returned isError`);

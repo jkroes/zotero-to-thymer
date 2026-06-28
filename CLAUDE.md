@@ -92,6 +92,12 @@ pnpm typecheck     # tsc
 pnpm create-xpi    # repackage build/ → xpi/zothymer-<ver>.xpi
 ```
 
+`pnpm start` launches Zotero with `-jsconsole -debugger`, which opens a Gecko DevTools Protocol server on
+a **dynamic port** (find it with `lsof -i -P -n | grep "zotero.*LISTEN"`). Connect via raw TCP
+(length-prefixed JSON); from the `root` actor → `getProcess(0)` → `getTarget()` → `consoleActor` →
+`evaluateJSAsync`. Useful for programmatic sync triggers:
+`Zotero.Zothymer.eventManager.emit('request-sync-collection', Zotero.Collections.get(<id>))`.
+
 `vp check` = format + lint + types (whole repo); `vp run verify` adds tests. The `check`/`verify` scripts
 pass `--no-error-on-unmatched-pattern` so `pnpm check <path>` tolerates a non-lintable path (e.g. a `.md`);
 bare `vp check <path>` without that flag errors with "No files found to lint".
@@ -154,12 +160,14 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
 ## The Thymer MCP server
 
 - **JSON-RPC over streamable-HTTP at `http://127.0.0.1:13100/`.** The Thymer **desktop app must be running**
-  with the target workspace loaded. Every tool call requires the **`workspace` GUID** argument.
+  with the target workspace loaded. Every workspace-scoped tool requires the **`workspace` GUID** argument
+  (from `list_workspaces`, e.g. `W3TZX0YZ…`). **Not** the org ID from `list_connected_organizations` —
+  the org ID (`TMENKG5BNA`) looks plausible but returns "MCP access is disabled."
 - **Transport gotchas** (`mcp-client.ts`): `Accept` must allow `text/event-stream`; the server returns JSON
   **or** an SSE stream (take the last `data:` line); the first response carries an `MCP-Session-Id` header
   to echo on later calls.
-- **Tools used:** `initialize`, `thymer_ping`, `list_collections`, `search`, `create_record`,
-  `update_record_property`.
+- **Tools used:** `initialize`, `thymer_ping` (no `workspace` arg — `additionalProperties: false`),
+  `list_workspaces`, `list_collections`, `search`, `create_record`, `update_record_property`.
 - **`search` strict equality:** query `@References."Zotero Key" === "<key>"`. The collection tag
   (`@References`) must be a **single token** — a spaced name breaks the parser ("Unknown magic tag").
 - **`search` result envelope (confirmed live 2026-06-28):** records under
@@ -171,12 +179,10 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
 
 ## Status / open work
 
-- **Builds clean** (`pnpm build` → `pnpm create-xpi`); reconciler live-verified over MCP. **Not yet run as
-  an installed `.xpi` inside Zotero** — that's the remaining gate.
-  1. **Test in Zotero:** install the `.xpi` (Tools → Plugins → Install from file), set the Thymer workspace
-     GUID in plugin prefs, run Thymer with the reconciler (`thymer-plugin/plugin.js`) loaded, sync a
-     collection, verify `References` populate.
-  2. **Tests:** the old test specs were deleted; rewrite against the Thymer modules
+- **Live-verified end-to-end (2026-06-28):** `pnpm start` → synced 12 real Zotero items → all 12
+  `References` records created in Thymer, `Sync Data` cleared by reconciler, scalars + multi-value
+  relations (up to 26 creators) + annotations all written correctly.
+  1. **Tests:** the old test specs were deleted; rewrite against the Thymer modules
      (`mcp-client` / `desired-state` / `push`).
 - **`tsc` noise:** `typecheck` reports errors inside `node_modules/@voidzero-dev/*` (vite-plus `.d.ts`);
   `src/` is clean. Add `"skipLibCheck": true` to `tsconfig.json` for a clean run if wanted.
@@ -193,7 +199,3 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
   `mcp-write-shapes`, `readonly-property-writes`.
 - General Thymer reference-model notes stay in the sibling repo:
   `~/repos/thymer-playground/notes/thymer-reference-model.md`.
-
-```
-
-```
