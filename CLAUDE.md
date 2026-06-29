@@ -58,6 +58,11 @@ job. Why push from Zotero (not pull from a Thymer plugin): Zotero runs privilege
   `{referenceGuid, zoteroKey, contentSig}` + tag.
 - **`sync/content-signature.ts`** — `contentSignature(item)` = the blob's `contentSig` (network-free), so
   the modify-skip and the reconciler's reconcile-skip share one identical signature.
+- **`services/open-handler.ts`** — `OpenHandler`: registers `POST /zothymer/open` on Zotero's built-in
+  Connector HTTP server (port 23119). Accepts a `zotero://` URI as `text/plain` body (or JSON `{uri}`).
+  For `select` URIs → `ZoteroPane.selectItem`; for `open-pdf` URIs → `Zotero.FileHandlers.open` with
+  `{ location: { annotationID } }`. Brings Zotero to front via `Zotero.Utilities.Internal.activate()`.
+  Sets `allowRequestsFromUnsafeWebContent = true` to bypass the Connector's browser-origin gate.
 - **`services/sync-manager.ts`** — global
   `SYNC_DEBOUNCE_MS` (5 s) coalescing, the modify-path content-signature no-op skip, and the
   `syncingItemIDs` re-entrancy guard.
@@ -78,8 +83,11 @@ inbox) — and watches `References`: for any record with non-empty **`Sync Data`
 author/editor/publisher/tag/collection entities and sets them as **multi-value relations**, and reconciles
 annotations as child records. Identity is **`Zotero Key` on the Reference** (no `Content Sig` collection
 field — change-detection lives Zotero-side). `custom.css` (applied workspace-global via `set_custom_css`,
-NOT plugin CSS) makes url-prop links clickable. Full design + verified facts: **`thymer-plugin/README.md`**
-and **`thymer-plugin/reconciler-design.md`**.
+NOT plugin CSS) makes url-prop links clickable. The plugin also installs a **click handler** for
+`zotero://` deep links: intercepts `<a href="zotero:...">` clicks, POSTs the URI to
+`http://127.0.0.1:23119/zothymer/open` (Zotero's Connector server, handled by `OpenHandler`), and falls
+back to clipboard copy if Zotero is unreachable. Full design + verified facts:
+**`thymer-plugin/README.md`** and **`thymer-plugin/reconciler-design.md`**.
 
 ## Commands
 
@@ -153,6 +161,15 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
     attachment (the ghost-recovery action) from instantly recreating the record.
   - **Sync-on-modify = global debounce + content-signature no-op skip**, serialized by `syncInProgress`,
     with the `syncingItemIDs` guard against the File-Renaming `item.modify` cascade.
+- **Deep-link bridge (HTTP, not `shell.openExternal`).** Thymer is an Electron app whose renderer sandbox
+  does not expose `shell.openExternal` — custom protocol navigation (`zotero://`) is blocked by the main
+  process. The workaround is an HTTP bridge: the Thymer plugin POSTs the `zotero://` URI to Zotero's
+  Connector server (`127.0.0.1:23119/zothymer/open`, `mode:'no-cors'`, `text/plain` body), and the
+  `OpenHandler` service on the Zotero side resolves the item and opens it. Key constraints discovered:
+  (a) `application/json` is not a CORS-safe header — stripped in `no-cors` mode, so use `text/plain`;
+  (b) Zotero's Connector blocks browser-origin requests unless the endpoint sets
+  `allowRequestsFromUnsafeWebContent = true`; (c) `no-cors` yields opaque responses (status 0) — can't
+  distinguish success from server errors, only network-down (fetch rejects → clipboard fallback).
 - **Partial-date granularity** — emit `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`; no season→month padding. (The
   reconciler pads to **local** midnight to avoid a date-only timezone shift — memory:
   `thymer-sdk-write-read-model`.)

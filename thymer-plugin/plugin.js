@@ -308,11 +308,64 @@ class Plugin extends AppPlugin {
     };
     this.handlers.push(this.events.on('record.created', onEv));
     this.handlers.push(this.events.on('record.updated', onEv));
+
+    // Thymer's Electron sandbox blocks custom-protocol navigation (zotero://).
+    // Try opening via Zotero's local HTTP endpoint; fall back to clipboard copy.
+    this._onLinkClick = (e) => {
+      const a = e.target.closest
+        ? e.target.closest('a[href^="zotero:"]')
+        : null;
+      if (!a) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const href = a.href;
+      const showToast = (msg) => {
+        const tip = document.createElement('div');
+        tip.textContent = msg;
+        Object.assign(tip.style, {
+          position: 'fixed',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: '#333',
+          color: '#fff',
+          padding: '8px 16px',
+          borderRadius: '6px',
+          fontSize: '13px',
+          zIndex: '999999',
+          opacity: '1',
+          transition: 'opacity 0.3s',
+        });
+        document.body.appendChild(tip);
+        setTimeout(() => {
+          tip.style.opacity = '0';
+        }, 1500);
+        setTimeout(() => tip.remove(), 1900);
+      };
+      const copyFallback = () =>
+        navigator.clipboard
+          .writeText(href)
+          .then(() => showToast('Copied: ' + href));
+      fetch('http://127.0.0.1:23119/zothymer/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: href,
+        mode: 'no-cors',
+      })
+        .then(() => showToast('Opened in Zotero'))
+        .catch(() => copyFallback());
+    };
+    document.addEventListener('click', this._onLinkClick, true);
+
     this.log('ready — references=' + this.colGuid.references);
   }
 
   onUnload() {
     (this.handlers || []).forEach((h) => this.events.off(h));
+    if (this._onLinkClick) {
+      document.removeEventListener('click', this._onLinkClick, true);
+      this._onLinkClick = null;
+    }
   }
 
   // ── provisioning (Option A: provision-if-missing, hand off; never modify existing field defs) ──

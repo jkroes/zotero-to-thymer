@@ -1,6 +1,7 @@
 import type { PluginInfo } from './plugin-info';
 import {
   EventManager,
+  OpenHandler,
   PreferencePaneManager,
   Service,
   ServiceParams,
@@ -21,6 +22,7 @@ export class Zothymer {
 
     this.services = [
       this.eventManager,
+      new OpenHandler(),
       this.preferencePaneManager,
       new SyncManager(),
       new UIManager(),

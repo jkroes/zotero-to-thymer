@@ -232,8 +232,22 @@ declare namespace Zotero {
   }
 
   interface Items extends DataObjects<Item> {
+    getByLibraryAndKey(libraryID: number, key: DataObjectKey): Item | false;
+
     /** Get the top-level items of all passed items */
     getTopLevel(items: Item[]): Item[];
+  }
+
+  interface Libraries {
+    userLibraryID: number;
+  }
+
+  interface Group {
+    libraryID: number;
+  }
+
+  interface Groups {
+    getByGroupID(groupID: number): Group | undefined;
   }
 
   interface ItemTypes extends CachedTypes {
@@ -454,6 +468,16 @@ declare namespace Zotero {
     };
   }
 
+  interface FileHandlers {
+    open(
+      item: Item,
+      params?: {
+        location?: { annotationID?: string; pageIndex?: number } | null;
+        openInWindow?: boolean;
+      },
+    ): Promise<void>;
+  }
+
   interface URI {
     getItemURI(item: Item): string;
   }
@@ -471,6 +495,7 @@ declare namespace Zotero {
         tabIndex?: number;
       },
     ): XPCOM.nsIDOMWindow | null;
+    activate(win?: Window): void;
   }
 
   interface ZoteroPane {
@@ -485,6 +510,21 @@ declare namespace Zotero {
     ): A extends true ? DataObjectID[] : Item[];
 
     loadURI(uris: string | string[]): void;
+
+    selectItem(itemID: DataObjectID, inLibraryRoot?: boolean): Promise<void>;
+  }
+
+  interface ServerEndpoint {
+    supportedMethods: string[];
+    supportedDataTypes: string[];
+    permitBookmarklet: boolean;
+    init(options: {
+      query?: Record<string, string>;
+    }): unknown[] | Promise<unknown[]>;
+  }
+
+  interface Server {
+    Endpoints: Record<string, new () => ServerEndpoint>;
   }
 
   interface ZoteroProtocolHandler {
@@ -507,13 +547,17 @@ declare interface Zotero {
   Collections: Zotero.Collections;
   CreatorTypes: Zotero.CreatorTypes;
   Date: Zotero.Date;
+  FileHandlers: Zotero.FileHandlers;
+  Groups: Zotero.Groups;
   Items: Zotero.Items;
   ItemTypes: Zotero.ItemTypes;
+  Libraries: Zotero.Libraries;
   Notifier: Zotero.Notifier;
   PreferencePanes: Zotero.PreferencePanes;
   Prefs: Zotero.Prefs;
   ProgressWindow: Zotero.ProgressWindow;
   QuickCopy: Zotero.QuickCopy;
+  Server: Zotero.Server;
   URI: Zotero.URI;
   Users: Zotero.Users;
   Utilities: { Internal: Zotero.UtilitiesInternal };

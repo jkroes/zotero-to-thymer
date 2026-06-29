@@ -204,6 +204,33 @@ schema are now live-proven, so this validates the actual Zotero plugin end of th
 - All prior live dev artifacts (orphan References, `ZZ` collections, the `ZZ Recon GP` plugin) are MOOT —
   the workspace was rewound to factory default (everything must be recreated; see RECREATE-AFTER-REWIND).
 
+**2026-06-28 (session 6) — `zotero://` deep-link bridge DONE + live-verified.**
+Thymer's Electron app does not expose `shell.openExternal` to the renderer/plugin sandbox — custom
+protocol links (`zotero://select/…`, `zotero://open-pdf/…`) are blocked by the main process
+(`will-navigate` handler, no Node integration, no `openExternal` on `thymerDesktopAPI`). Built a two-part
+HTTP bridge:
+
+1. **Zotero side** — `OpenHandler` service (`src/content/services/open-handler.ts`): registers
+   `POST /zothymer/open` on Zotero's Connector HTTP server (port 23119). Accepts `text/plain` (raw URI) or
+   `application/json` (`{uri}`). Sets `allowRequestsFromUnsafeWebContent = true` to bypass the Connector's
+   browser-origin gate. For `zotero://select` URIs → `ZoteroPane.selectItem()`; for `zotero://open-pdf` →
+   `Zotero.FileHandlers.open(item, { location: { annotationID } })` (the same API Zotero's native protocol
+   handler uses). Brings Zotero to front via `Zotero.Utilities.Internal.activate()` (AppleScript on macOS).
+2. **Thymer side** — click handler in `thymer-plugin/plugin.js`: intercepts `<a href="zotero:...">` clicks,
+   sends `fetch('http://127.0.0.1:23119/zothymer/open', {method:'POST', body: href, mode:'no-cors'})`.
+   Falls back to clipboard copy with toast if Zotero is unreachable (fetch rejects on network error).
+
+Key constraints discovered: (a) `application/json` is not a CORS-safe content type — the browser strips it
+in `no-cors` mode; use `text/plain`. (b) Zotero's Connector server (`server.js` `_processEndpoint`) blocks
+browser-origin requests (checks `User-Agent: Mozilla/` or `Origin` header) unless the endpoint sets
+`allowRequestsFromUnsafeWebContent = true`. (c) `mode: 'no-cors'` yields opaque responses (status 0) —
+can't distinguish success from 404/500, only network-down (fetch rejects → clipboard fallback). Minor UX
+gap: toast always says "Opened in Zotero" even on server errors. (d) `win.focus()` doesn't bring a
+background macOS app to front; `Zotero.Utilities.Internal.activate()` (no args) uses AppleScript
+(`tell application "System Events" set frontmost...`). The `activate(win)` overload uses Carbon
+`SetFrontProcessWithOptions` in a `load` listener that never fires for already-loaded windows — must be
+called without arguments. Both `select` and `open-pdf` links verified working end-to-end.
+
 **Gotchas to carry in** (cost real time last session): SDK `prop.set` persists but is NOT readable
 in-tick; `data.getRecord(newGuid)` is null in-tick (use `getAllRecords().find` → `byGuid`); a
 just-created collection's `getConfiguration()` handle is stale; `read_only` fields accept SDK writes;
