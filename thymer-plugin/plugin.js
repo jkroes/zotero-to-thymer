@@ -117,7 +117,7 @@ const ITEM_TYPE_LABELS = [
 
 // Property type strings (PROP_TYPE_* in sdk/types.d.ts): text | number | datetime | url | choice | record | ...
 // Order matters — relation TARGET collections must precede the collection whose relation field points
-// at them (so `filter_colguid` resolves). People/Orgs/Tags/Zotero Collections all precede References.
+// at them (so `filter_colguid` resolves). People/Orgs precede References; References precedes Annotations.
 const SCHEMA = [
   // Entity collections: the record TITLE is the name (createRecord(name) sets it). No custom
   // fields — avoids an in-tick prop write on a freshly created record (which doesn't read back).
@@ -136,20 +136,6 @@ const SCHEMA = [
     fields: [],
   },
   {
-    key: 'tags',
-    name: 'Zotero Tags',
-    item_name: 'Tag',
-    icon: 'ti-tag',
-    fields: [],
-  },
-  {
-    key: 'zoteroCollections',
-    name: 'Zotero Collections',
-    item_name: 'Zotero Collection',
-    icon: 'ti-folder',
-    fields: [],
-  },
-  {
     key: 'references',
     name: 'References',
     item_name: 'Reference',
@@ -161,7 +147,7 @@ const SCHEMA = [
       }),
       F('year', 'Year', 'number', { number_format: 'plain' }), // plain → no "2,016" grouping
       F('date', 'Date', 'datetime'),
-      F('container', 'Container', 'text'),
+      F('container', 'Container', 'choice'),
       F('doi', 'DOI', 'url'),
       F('url', 'URL', 'url'),
       F('abstract', 'Abstract', 'text'),
@@ -201,11 +187,8 @@ const SCHEMA = [
         many: true,
         filterColKey: 'orgs',
       }),
-      F('collections', 'Collections', 'record', {
-        many: true,
-        filterColKey: 'zoteroCollections',
-      }),
-      F('tags', 'Tags', 'record', { many: true, filterColKey: 'tags' }),
+      F('collections', 'Collections', 'choice', { many: true }),
+      F('tags', 'Tags', 'choice', { many: true }),
       // Transient delivery channel: the Zotero side writes the desired-state JSON blob here; the
       // reconciler drains it and CLEARS it (empty in steady state). read_only blocks user UI edits
       // but still accepts MCP (Zotero) + SDK (this plugin) writes. This is the only "mailbox" now.
@@ -282,8 +265,6 @@ class Plugin extends AppPlugin {
     this.entIndex = {
       people: new Map(),
       orgs: new Map(),
-      tags: new Map(),
-      zoteroCollections: new Map(),
     }; // name → guid
 
     try {
@@ -580,6 +561,11 @@ class Plugin extends AppPlugin {
     // scalars can arrive nested under blob.scalars OR top-level (itemType, zoteroLink); merge,
     // letting an explicit blob.scalars entry win.
     const sc = Object.assign({}, blob, blob.scalars || {});
+    // Ensure dynamic choice options exist BEFORE the scalar loop sets them (setChoice needs them).
+    if (sc.container)
+      await this.ensureChoices('references', 'container', [
+        String(sc.container),
+      ]);
     for (const id of SCALAR_FIELDS) {
       this.setScalar(
         rec,
@@ -614,13 +600,14 @@ class Plugin extends AppPlugin {
       rel.Publisher,
       'orgs',
     );
-    await this.setRelation(
+    // multi-value choice fields (dynamic choices provisioned on the fly)
+    await this.setMultiChoice(rec, 'references', 'tags', blob.tags || []);
+    await this.setMultiChoice(
       rec,
-      this.L('references', 'collections'),
-      (blob.collections || []).map((n) => ({ name: n })),
-      'zoteroCollections',
+      'references',
+      'collections',
+      blob.collections || [],
     );
-    await this.setTags(rec, blob.tags);
     await this.reconcileAnnotations(rec.guid, blob.annotations || []);
   }
 
@@ -681,13 +668,38 @@ class Plugin extends AppPlugin {
     this.applyGuidSet(rec, label, want);
   }
 
-  async setTags(rec, tags) {
-    if (!Array.isArray(tags)) return;
-    const want = [];
-    for (const t of tags) {
-      if (t) want.push(await this.resolveEntity('tags', String(t)));
-    }
-    this.applyGuidSet(rec, this.L('references', 'tags'), want);
+  // Ensure choice options exist in the collection config for a field, adding any missing ones.
+  // Only saves the config when new options are actually added (no-op otherwise).
+  async ensureChoices(colKey, fieldId, labels) {
+    if (!labels.length) return;
+    const col = this.cols[colKey];
+    const conf = col.getConfiguration();
+    const fields = conf.fields || [];
+    const fieldIdx = fields.findIndex((f) => f.id === fieldId);
+    if (fieldIdx < 0) return;
+    const field = fields[fieldIdx];
+    const existing = new Set((field.choices || []).map((c) => c.label));
+    const missing = labels.filter((l) => l && !existing.has(l));
+    if (!missing.length) return;
+    const updated = [...fields];
+    updated[fieldIdx] = {
+      ...field,
+      choices: [...(field.choices || []), ...missing.map((l) => choice(l))],
+    };
+    await col.saveConfiguration({ ...conf, fields: updated });
+  }
+
+  // Set a multi-value choice field with value-diff. Provisions missing choice options first.
+  async setMultiChoice(rec, colKey, fieldId, labels) {
+    const clean = labels.filter(Boolean).map(String);
+    await this.ensureChoices(colKey, fieldId, clean);
+    const prop = rec.prop(this.L(colKey, fieldId));
+    if (!prop) return;
+    const have = [...prop.selectedChoiceLabels()].sort();
+    const want = [...clean].sort();
+    if (have.length === want.length && have.every((v, i) => v === want[i]))
+      return;
+    prop.setChoice(clean.length ? clean : []);
   }
 
   applyGuidSet(rec, label, wantGuids) {
