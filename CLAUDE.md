@@ -63,6 +63,18 @@ job. Why push from Zotero (not pull from a Thymer plugin): Zotero runs privilege
   For `select` URIs → `ZoteroPane.selectItem`; for `open-pdf` URIs → `Zotero.FileHandlers.open` with
   `{ location: { annotationID } }`. Brings Zotero to front via `Zotero.Utilities.Internal.activate()`.
   Sets `allowRequestsFromUnsafeWebContent = true` to bypass the Connector's browser-origin gate.
+- **`services/library-handler.ts`** — `LibraryHandler`: the pull-based library API for the Thymer
+  plugin's "Zotero: Library" panel. Registers on the same Connector server:
+  `GET /zothymer/library/ping` (handshake, no token), `GET /zothymer/library/search?q=&token=`
+  (quicksearch across all libraries → `LibraryItemSummary[]` incl. `synced`/`referenceGuid`),
+  `GET /zothymer/library/item?key=<libraryID:itemKey>&token=` (full `buildDesiredState` blob), and
+  `POST /zothymer/library/mark-synced?token=` (text/plain JSON `{zoteroKey, referenceGuid,
+contentSig?}` → `saveThymerSyncData` + tag — the same identity the push flow persists). All
+  responses carry `Access-Control-Allow-Origin: *`; every data endpoint is gated on the
+  auto-generated `extensions.zothymer.libraryToken` pref. CORS constraints (verified live
+  2026-07-03): Zotero drops Origin-bearing requests unless the endpoint sets
+  `allowRequestsFromUnsafeWebContent`; preflight can never succeed (Zotero answers OPTIONS itself,
+  no CORS headers) → simple requests only (GET, or POST text/plain).
 - **`services/sync-manager.ts`** — global
   `SYNC_DEBOUNCE_MS` (5 s) coalescing, the modify-path content-signature no-op skip, and the
   `syncingItemIDs` re-entrancy guard.
@@ -75,6 +87,15 @@ job. Why push from Zotero (not pull from a Thymer plugin): Zotero runs privilege
   `zothymer-*`.
 
 ### Thymer side — `thymer-plugin/`
+
+The plugin also provides the **"Zotero: Library" panel** (command palette → custom panel): search
+the live Zotero library over `GET /zothymer/library/search`, then **Import** fetches the item's
+desired-state blob (`/zothymer/library/item`) and feeds it **directly to `reconcileReference`** —
+no `Sync Data` mailbox, no MCP hop — then POSTs `/zothymer/library/mark-synced` so Zotero stores
+the same identity attachment the push flow writes (both flows stay convergent; the auto-sync
+modify path picks the item up from there). Config: paste the token from Zotero's
+`extensions.zothymer.libraryToken` pref (Settings → Advanced → Config Editor) into the plugin
+Configuration's `custom.libraryToken`.
 
 A global Thymer plugin (`plugin.js`) that, on load, **self-provisions 6 collections** —
 `People` / `Organizations` / `Zotero Tags` / `Zotero Collections` / `References` / `Annotations` (no
@@ -199,6 +220,36 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
 - **Live-verified end-to-end (2026-06-28):** `pnpm start` → synced 12 real Zotero items → all 12
   `References` records created in Thymer, `Sync Data` cleared by reconciler, scalars + multi-value
   relations (up to 26 creators) + annotations all written correctly.
+- **Library pull flow — LIVE-VERIFIED END-TO-END (2026-07-03).** Full loop exercised in the real
+  apps: xpi installed in Zotero 9.0.4 (endpoints return `ACAO: *` on Origin-bearing requests,
+  token gating 403s, search/item real data, malformed inputs 400/404), Thymer global plugin
+  "Zotero Sync" (guid `16VJ18PT2GC3SN3D386Q074PTG`) deployed via `thymercli plugin update code`,
+  panel driven via agent-browser CDP: searched, imported 2 items → References records with
+  scalars + choice fields + creators relations (People dedup'd), Zotero side confirmed
+  `synced:true` + "Thymer" attachment (mark-synced happy path ✓). `panel.setTitle` works.
+  **Annotations verified at scale** via the production push path (blob → `Sync Data` over MCP):
+  60/60 annotation records created with full fields (text/comment/color/page/order/pdfLink) and
+  the Reference parent relation — the June "annotation records stay empty" bug is fixed by the
+  hydration poll. CDP-driving caveat: after `update_plugin_code`, panels created by the PREVIOUS
+  plugin instance stay visible but their buttons call into dead closures whose SDK promises never
+  resolve — clicks silently no-op. Close stale panels (or restart Thymer) before UI-testing a
+  fresh push.
+  Two SDK gotchas found + fixed during verification (both latent for the MCP push path too):
+  1. **A record created in-tick has no queryable props** — `rec.prop(label)` returns null right
+     after `createRecord()`; `findOrCreateReference` polls (100 ms × 30) until the property map
+     hydrates.
+  2. **`saveConfiguration` is invisible to handles the instance already holds** —
+     `col.getConfiguration()` keeps returning the pre-save snapshot, so consecutive
+     `ensureChoices` calls clobbered each other (tags lost to collections; lost-update), and
+     `setChoice` refused options minted in the same instance. Fixed by re-resolving a FRESH
+     collection handle (`data.getAllCollections()`) after save (swapped into `this.cols`) and
+     retrying `setChoice` on a freshly resolved record handle.
+     (Token retrieval during dev: eval `Zotero.Prefs.get(...)` over the DevTools TCP port — see
+     "Commands" — since prefs.js only flushes on shutdown. Note web-ext dev runs DISCARD pref
+     changes on exit; a normally-installed xpi persists the token.)
+- **Local lint baseline is red (2026-07-03):** `pnpm check` reports ~49 errors on a clean `main`
+  (mostly "unused eslint-disable directive" — linter version drift, spans 84 files). New code adds
+  zero; fix or pin the linter before the next release.
   1. **Tests:** the old test specs were deleted; rewrite against the Thymer modules
      (`mcp-client` / `desired-state` / `push`).
 - **`tsc` noise:** `typecheck` reports errors inside `node_modules/@voidzero-dev/*` (vite-plus `.d.ts`);

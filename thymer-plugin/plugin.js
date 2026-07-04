@@ -338,6 +338,23 @@ class Plugin extends AppPlugin {
     };
     document.addEventListener('click', this._onLinkClick, true);
 
+    // ── Zotero Library view: pull-based search + import over the xpi's /zothymer/library/* HTTP
+    // API on Zotero's Connector server (port 23119). Import reuses reconcileReference directly —
+    // no Sync Data mailbox, no MCP hop. Requires the shared token from the Zotero pref
+    // `extensions.zothymer.libraryToken` in this plugin's Configuration (custom.libraryToken).
+    this.ui.registerCustomPanelType('zotero-library', (panel) =>
+      this.renderLibraryPanel(panel),
+    );
+    this._libraryCommand = this.ui.addCommandPaletteCommand({
+      label: 'Zotero: Library',
+      icon: 'ti-book',
+      onSelected: () => {
+        this.openLibraryPanel().catch((e) =>
+          this.warn('openLibraryPanel: ' + ((e && e.stack) || e)),
+        );
+      },
+    });
+
     this.log('ready — references=' + this.colGuid.references);
   }
 
@@ -346,6 +363,10 @@ class Plugin extends AppPlugin {
     if (this._onLinkClick) {
       document.removeEventListener('click', this._onLinkClick, true);
       this._onLinkClick = null;
+    }
+    if (this._libraryCommand && this._libraryCommand.remove) {
+      this._libraryCommand.remove();
+      this._libraryCommand = null;
     }
   }
 
@@ -554,8 +575,10 @@ class Plugin extends AppPlugin {
   // never creates References — it only fills in the structured fields MCP can't.
   async reconcileReference(rec, blob) {
     const keyLabel = this.L('references', 'zoteroKey');
+    const keyProp = rec.prop(keyLabel);
+    if (!keyProp) throw new Error('prop "' + keyLabel + '" not resolvable yet'); // in-tick record — retry later
     if ((rec.text(keyLabel) || '') !== blob.zoteroKey)
-      rec.prop(keyLabel).set(blob.zoteroKey); // ensure identity
+      keyProp.set(blob.zoteroKey); // ensure identity
 
     this.setIfChanged(rec, 'title', blob.title);
     // scalars can arrive nested under blob.scalars OR top-level (itemType, zoteroLink); merge,
@@ -687,19 +710,56 @@ class Plugin extends AppPlugin {
       choices: [...(field.choices || []), ...missing.map((l) => choice(l))],
     };
     await col.saveConfiguration({ ...conf, fields: updated });
+    // A saved config is NOT visible through the handles this instance already holds (verified
+    // live 2026-07-03): col.getConfiguration() keeps returning the pre-save snapshot, so a
+    // setChoice right after this can't resolve the new options, and a SECOND ensureChoices for
+    // another field would read the stale base and clobber this save (lost-update). Re-resolve a
+    // FRESH collection handle until it carries the new options, and swap it into this.cols so
+    // every later read/write in this instance uses the refreshed handle.
+    for (let i = 0; i < 30; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const all = await this.data.getAllCollections();
+      const fresh = all.find((c) => c.getGuid() === col.getGuid());
+      if (!fresh) continue;
+      const liveField = (fresh.getConfiguration().fields || []).find(
+        (f) => f.id === fieldId,
+      );
+      const have = new Set(
+        ((liveField && liveField.choices) || []).map((c) => c.label),
+      );
+      if (missing.every((l) => have.has(l))) {
+        this.cols[colKey] = fresh;
+        return;
+      }
+    }
+    this.warn('choices for ' + fieldId + ' not visible after save');
   }
 
   // Set a multi-value choice field with value-diff. Provisions missing choice options first.
+  // setChoice validates against the handle's snapshot of the config, so options minted just now
+  // by ensureChoices resolve only through a handle obtained AFTER the save — retry the write on a
+  // freshly resolved record handle when the first attempt is refused.
   async setMultiChoice(rec, colKey, fieldId, labels) {
     const clean = labels.filter(Boolean).map(String);
     await this.ensureChoices(colKey, fieldId, clean);
-    const prop = rec.prop(this.L(colKey, fieldId));
-    if (!prop) return;
-    const have = [...prop.selectedChoiceLabels()].sort();
-    const want = [...clean].sort();
-    if (have.length === want.length && have.every((v, i) => v === want[i]))
-      return;
-    prop.setChoice(clean.length ? clean : []);
+    const label = this.L(colKey, fieldId);
+    let target = rec;
+    for (let i = 0; i < 10; i++) {
+      const prop = target.prop(label);
+      if (prop) {
+        const have = [...prop.selectedChoiceLabels()].sort();
+        const want = [...clean].sort();
+        if (have.length === want.length && have.every((v, j) => v === want[j]))
+          return;
+        const ok = prop.setChoice(clean.length ? clean : []);
+        if (ok !== false) return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const recs = await this.cols[colKey].getAllRecords();
+      target = recs.find((r) => r.guid === rec.guid) || rec;
+    }
+    if (clean.length)
+      this.warn('setChoice failed for ' + fieldId + ': ' + clean.join(', '));
   }
 
   applyGuidSet(rec, label, wantGuids) {
@@ -765,8 +825,19 @@ class Plugin extends AppPlugin {
       if (!guid) {
         guid = this.cols.annotations.createRecord(a.text || a.annoKey);
         if (!guid) continue;
-        rec = await this.byGuid('annotations', guid);
-        if (!rec) continue;
+        // Same in-tick hydration gap as findOrCreateReference: a freshly created record's
+        // props aren't resolvable (and writes to them are lost) until the property map
+        // hydrates — poll before writing (verified live 2026-07-03).
+        rec = null;
+        for (let t = 0; t < 30 && !rec; t++) {
+          const cand = await this.byGuid('annotations', guid);
+          if (cand && cand.prop(annoKeyLabel)) rec = cand;
+          else await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        if (!rec) {
+          this.warn('annotation record never became writable: ' + a.annoKey);
+          continue;
+        }
         rec.prop(annoKeyLabel).set(a.annoKey);
         this.annoIndex.set(a.annoKey, guid);
       } else {
@@ -815,6 +886,306 @@ class Plugin extends AppPlugin {
     }
     rec.trash();
     return true;
+  }
+
+  // ── Zotero Library view (pull-based import) ──────────────────────────────────────────────────
+  // Talks to the xpi's /zothymer/library/* endpoints. Constraints (verified live 2026-07-03, see
+  // src/content/services/library-handler.ts): only CORS "simple requests" survive Zotero's server
+  // (GET with query params, POST with text/plain body); responses carry ACAO:* so they're readable
+  // here; every data endpoint requires the shared `token` query param.
+
+  libraryConfig() {
+    const conf = (this.getConfiguration && this.getConfiguration()) || {};
+    const custom = conf.custom || {};
+    return {
+      endpoint: String(
+        custom.zoteroEndpoint || 'http://127.0.0.1:23119',
+      ).replace(/\/+$/, ''),
+      token: String(custom.libraryToken || ''),
+    };
+  }
+
+  async libraryFetch(path, params = {}, post = null) {
+    const { endpoint, token } = this.libraryConfig();
+    const usp = new URLSearchParams({ ...params, token });
+    const url = endpoint + path + '?' + usp.toString();
+    const opts = post
+      ? {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' }, // only preflight-free content-type
+          body: JSON.stringify(post),
+        }
+      : {};
+    let resp;
+    try {
+      resp = await fetch(url, opts);
+    } catch (e) {
+      throw new Error('UNREACHABLE');
+    }
+    if (resp.status === 403) throw new Error('TOKEN');
+    if (!resp.ok) {
+      let detail = '';
+      try {
+        detail = (await resp.json()).error || '';
+      } catch (e) {
+        /* non-JSON error body */
+      }
+      throw new Error('HTTP ' + resp.status + (detail ? ': ' + detail : ''));
+    }
+    return resp.json();
+  }
+
+  libraryErrorText(e) {
+    const m = String((e && e.message) || e);
+    if (m === 'UNREACHABLE')
+      return 'Zotero unreachable — is Zotero running with the Zothymer add-on?';
+    if (m === 'TOKEN')
+      return (
+        'Token rejected. In Zotero: Settings → Advanced → Config Editor → ' +
+        "extensions.zothymer.libraryToken; paste it into this plugin's Configuration as " +
+        '"custom": {"libraryToken": "..."}.'
+      );
+    return 'Error: ' + m;
+  }
+
+  async openLibraryPanel() {
+    const panel = await this.ui.createPanel();
+    if (panel) panel.navigateToCustomType('zotero-library');
+  }
+
+  renderLibraryPanel(panel) {
+    const el = panel.getElement();
+    if (!el) return;
+    if (panel.setTitle) panel.setTitle('Zotero Library');
+    el.replaceChildren(); // plugin-owned panel DOM (not the editor) — safe to manage
+
+    const wrap = document.createElement('div');
+    Object.assign(wrap.style, {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '10px',
+      padding: '16px',
+      maxWidth: '760px',
+      margin: '0 auto',
+      height: '100%',
+      boxSizing: 'border-box',
+      fontFamily: 'var(--font-sans, sans-serif)',
+    });
+
+    const input = document.createElement('input');
+    input.type = 'search';
+    input.placeholder = 'Search your Zotero library (title, creator, year)…';
+    Object.assign(input.style, {
+      padding: '8px 12px',
+      fontSize: '14px',
+      borderRadius: '8px',
+      border: '1px solid rgba(128,128,128,0.35)',
+      background: 'transparent',
+      color: 'inherit',
+      outline: 'none',
+    });
+
+    const status = document.createElement('div');
+    Object.assign(status.style, {
+      fontSize: '12px',
+      opacity: '0.7',
+      minHeight: '16px',
+    });
+
+    const list = document.createElement('div');
+    Object.assign(list.style, { overflowY: 'auto', flex: '1' });
+
+    let seq = 0;
+    const run = async () => {
+      const q = input.value.trim();
+      const mySeq = ++seq;
+      if (!q) {
+        list.replaceChildren();
+        status.textContent = 'Type to search.';
+        return;
+      }
+      status.textContent = 'Searching…';
+      try {
+        const res = await this.libraryFetch('/zothymer/library/search', {
+          q,
+          limit: '50',
+        });
+        if (mySeq !== seq) return; // superseded by newer keystroke
+        const items = res.items || [];
+        status.textContent = items.length
+          ? items.length + ' result' + (items.length === 1 ? '' : 's')
+          : 'No results.';
+        list.replaceChildren(
+          ...items.map((it) => this.buildLibraryRow(it, panel)),
+        );
+      } catch (e) {
+        if (mySeq === seq) status.textContent = this.libraryErrorText(e);
+      }
+    };
+    let timer = null;
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(run, 300);
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        clearTimeout(timer);
+        run();
+      }
+    });
+
+    wrap.append(input, status, list);
+    el.appendChild(wrap);
+    status.textContent = 'Type to search.';
+    input.focus();
+  }
+
+  buildLibraryRow(item, panel) {
+    const row = document.createElement('div');
+    Object.assign(row.style, {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '12px',
+      padding: '10px 4px',
+      borderBottom: '1px solid rgba(128,128,128,0.2)',
+    });
+
+    const info = document.createElement('div');
+    Object.assign(info.style, { minWidth: '0' });
+    const title = document.createElement('div');
+    title.textContent = item.title || '(untitled)';
+    Object.assign(title.style, { fontWeight: '600', fontSize: '13px' });
+    const meta = document.createElement('div');
+    meta.textContent = [
+      item.creators,
+      item.year,
+      item.itemType,
+      item.citationKey ? '@' + item.citationKey : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    Object.assign(meta.style, { fontSize: '12px', opacity: '0.7' });
+    info.append(title, meta);
+
+    const actions = document.createElement('div');
+    Object.assign(actions.style, {
+      display: 'flex',
+      gap: '6px',
+      flexShrink: '0',
+    });
+
+    const mkBtn = (label, onClick) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      Object.assign(b.style, {
+        padding: '4px 10px',
+        fontSize: '12px',
+        borderRadius: '6px',
+        border: '1px solid rgba(128,128,128,0.35)',
+        background: 'transparent',
+        color: 'inherit',
+        cursor: 'pointer',
+      });
+      b.addEventListener('click', onClick);
+      return b;
+    };
+
+    const state = { guid: item.referenceGuid || null };
+
+    const render = () => {
+      actions.replaceChildren();
+      if (state.guid) {
+        actions.append(
+          mkBtn('Open', () => this.openReference(state.guid, panel)),
+          mkBtn('Re-import', () => doImport('Re-importing…')),
+        );
+      } else {
+        actions.append(mkBtn('Import', () => doImport('Importing…')));
+      }
+    };
+
+    const doImport = (verb) => {
+      actions.replaceChildren();
+      const note = document.createElement('span');
+      note.textContent = verb;
+      Object.assign(note.style, { fontSize: '12px', opacity: '0.7' });
+      actions.append(note);
+      this.importLibraryItem(item.zoteroKey)
+        .then((guid) => {
+          state.guid = guid;
+          render();
+        })
+        .catch((e) => {
+          this.warn('import ' + item.zoteroKey + ': ' + ((e && e.stack) || e));
+          note.textContent = this.libraryErrorText(e);
+          setTimeout(render, 4000);
+        });
+    };
+
+    render();
+    row.append(info, actions);
+    return row;
+  }
+
+  // Fetch the item's desired-state blob from Zotero, write it via the reconciler core (the same
+  // structured-write path the push flow uses), then hand Zotero its sync identity (the same
+  // attachment+tag the push flow persists) so both flows stay convergent.
+  async importLibraryItem(zoteroKey) {
+    const blob = await this.libraryFetch('/zothymer/library/item', {
+      key: zoteroKey,
+    });
+    const rec = await this.findOrCreateReference(blob);
+    if (this.inflight.has(rec.guid)) throw new Error('import already running');
+    this.inflight.add(rec.guid);
+    try {
+      await this.reconcileReference(rec, blob);
+    } finally {
+      this.inflight.delete(rec.guid);
+    }
+    await this.libraryFetch(
+      '/zothymer/library/mark-synced',
+      {},
+      {
+        zoteroKey: blob.zoteroKey,
+        referenceGuid: rec.guid,
+        contentSig: blob.contentSig,
+      },
+    );
+    return rec.guid;
+  }
+
+  async findOrCreateReference(blob) {
+    const keyLabel = this.L('references', 'zoteroKey');
+    const refs = await this.cols.references.getAllRecords();
+    const existing = refs.find(
+      (r) => (r.text(keyLabel) || '') === blob.zoteroKey,
+    );
+    if (existing) return existing;
+    const guid = this.cols.references.createRecord(
+      blob.title || blob.zoteroKey,
+    );
+    if (!guid) throw new Error('createRecord(references) failed');
+    // A record created in THIS tick resolves via byGuid but its props aren't queryable yet —
+    // rec.prop(label) returns null until the property map hydrates (verified live 2026-07-03).
+    // Poll briefly before handing it to reconcileReference.
+    for (let i = 0; i < 30; i++) {
+      const rec = await this.byGuid('references', guid);
+      if (rec && rec.prop(keyLabel)) return rec;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('created Reference never became writable: ' + guid);
+  }
+
+  async openReference(guid, fromPanel) {
+    const p = await this.ui.createPanel({ afterPanel: fromPanel });
+    if (!p) return;
+    p.navigateTo({
+      type: 'edit_panel',
+      rootId: guid,
+      subId: null,
+      workspaceGuid: null,
+    });
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────────────────────────

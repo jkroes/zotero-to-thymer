@@ -9,6 +9,13 @@ export enum ZothymerPref {
   thymerWorkspace = 'thymerWorkspace',
   /** Thymer MCP endpoint; default http://127.0.0.1:13100/ when unset. */
   thymerEndpoint = 'thymerEndpoint',
+  /**
+   * Shared secret for the /zothymer/library/* HTTP endpoints. Auto-generated on
+   * first startup; the Thymer plugin must send it as a `token` query param
+   * (ACAO:* makes the endpoints reachable from any local browser page, so
+   * requests are gated on this token).
+   */
+  libraryToken = 'libraryToken',
 }
 
 export enum PageTitleFormat {
@@ -43,6 +50,7 @@ type ZothymerPrefValue = Partial<{
   [ZothymerPref.syncOnModifyItems]: boolean;
   [ZothymerPref.thymerWorkspace]: string;
   [ZothymerPref.thymerEndpoint]: string;
+  [ZothymerPref.libraryToken]: string;
 }>;
 
 function buildFullPrefName(pref: ZothymerPref): string {
@@ -90,6 +98,7 @@ function convertRawPrefValue<P extends ZothymerPref>(
     [ZothymerPref.syncOnModifyItems]: booleanPref,
     [ZothymerPref.thymerWorkspace]: stringPref,
     [ZothymerPref.thymerEndpoint]: stringPref,
+    [ZothymerPref.libraryToken]: stringPref,
   }[pref];
 }
 
