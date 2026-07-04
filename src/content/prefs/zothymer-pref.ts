@@ -10,6 +10,12 @@ export enum ZothymerPref {
   /** Thymer MCP endpoint; default http://127.0.0.1:13100/ when unset. */
   thymerEndpoint = 'thymerEndpoint',
   /**
+   * Absolute path of the Thymer Markdown Mirror root folder (the folder the
+   * user picked in Thymer's mirror settings). Required for sync — the mirror
+   * is the push transport.
+   */
+  mirrorRoot = 'mirrorRoot',
+  /**
    * Shared secret for the /zothymer/library/* HTTP endpoints. Auto-generated on
    * first startup; the Thymer plugin must send it as a `token` query param
    * (ACAO:* makes the endpoints reachable from any local browser page, so
@@ -50,6 +56,7 @@ type ZothymerPrefValue = Partial<{
   [ZothymerPref.syncOnModifyItems]: boolean;
   [ZothymerPref.thymerWorkspace]: string;
   [ZothymerPref.thymerEndpoint]: string;
+  [ZothymerPref.mirrorRoot]: string;
   [ZothymerPref.libraryToken]: string;
 }>;
 
@@ -98,6 +105,7 @@ function convertRawPrefValue<P extends ZothymerPref>(
     [ZothymerPref.syncOnModifyItems]: booleanPref,
     [ZothymerPref.thymerWorkspace]: stringPref,
     [ZothymerPref.thymerEndpoint]: stringPref,
+    [ZothymerPref.mirrorRoot]: stringPref,
     [ZothymerPref.libraryToken]: stringPref,
   }[pref];
 }

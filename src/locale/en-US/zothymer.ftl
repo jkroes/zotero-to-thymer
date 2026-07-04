@@ -10,13 +10,16 @@ zothymer-tools-menu-preferences =
 ## Thymer preferences
 
 zothymer-preferences-thymer-groupbox-heading = Thymer Connection
-zothymer-preferences-thymer-groupbox-description = Syncs items to Thymer through the desktop app's built-in MCP server (127.0.0.1:13100). Open Thymer, install + load the "Zotero Sync" reconciler plugin (it provisions the collections), then enter your workspace GUID below.
+zothymer-preferences-thymer-groupbox-description = Syncs items to Thymer by writing markdown files into the Markdown Mirror folder (Thymer's two-way file sync). Enable the Markdown Mirror in Thymer, load the "Zotero Sync" plugin once (it provisions the collections), then enter your workspace GUID and the mirror folder below.
 zothymer-preferences-thymer-workspace-label = Workspace GUID:
 zothymer-preferences-thymer-workspace-input =
     .placeholder = Your 26-character Thymer workspace GUID
 zothymer-preferences-thymer-endpoint-label = MCP Endpoint:
 zothymer-preferences-thymer-endpoint-input =
     .placeholder = http://127.0.0.1:13100/ (default)
+zothymer-preferences-mirror-root-label = Markdown Mirror Folder:
+zothymer-preferences-mirror-root-input =
+    .placeholder = Absolute path of Thymer's Markdown Mirror folder
 
 ## Reference preferences
 
@@ -54,3 +57,6 @@ zothymer-warning-referenced-fields = Referenced in Thymer, not updated: { $field
 
 zothymer-error-missing-pref = Missing value for { $pref }. Please enter it in Zothymer preferences.
 zothymer-error-tana-unreachable = Thymer is not reachable. Open the Thymer desktop app (its MCP server listens on 127.0.0.1:13100) and load the "Zotero Sync" reconciler plugin.
+zothymer-error-mirror-root-missing = No Markdown Mirror folder is configured. Enter the mirror folder path in Zothymer preferences.
+zothymer-error-mirror-root-invalid = The configured Markdown Mirror folder doesn't look like an active Thymer mirror (missing { $folder }/_plugin.json). Check the path in Zothymer preferences and that the mirror is enabled in Thymer.
+zothymer-error-mirror-ingest-timeout = Thymer did not pick up the synced files in time. Is the Thymer desktop app running with the Markdown Mirror active?

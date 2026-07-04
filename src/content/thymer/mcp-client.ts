@@ -3,15 +3,16 @@
  * (streamable-HTTP on http://127.0.0.1:13100). Thymer
  * exposes everything over MCP, so we speak JSON-RPC + `tools/call`.
  *
- * In the all-SDK-writes architecture ("Option A": no inbox) the Zotero plugin is
- * a DUMB PIPE: per item it finds the `References` record by its `Zotero Key`
- * (strict-equality `search`) and writes the desired-state blob into that record's
- * transient `Sync Data` field — `create_record` for a new item,
- * `update_record_property` for an existing one. The SDK-side reconciler plugin
- * does every structured write. So this client is deliberately small — initialize,
- * list_collections, search, create_record, update_record_property. No multi-value
- * writes (MCP can't do them on update; that's the reconciler's whole job — see
- * notes in the thymer-playground repo: thymer-reference-model.md §4).
+ * In the mirror-transport architecture the Markdown Mirror carries all record
+ * data (docs/mirror-transport-spike.md), and MCP is the thin side-channel for
+ * the two things files cannot do:
+ *  - provision missing choice options (`get/update_collection_config_json`)
+ *    — the mirror silently drops unknown choice values;
+ *  - clear a single-value scalar (`update_record_property` with '') — the
+ *    mirror cannot clear a property at all (spike S2).
+ * Plus the `thymer_ping` preflight. Multi-value writes stay forbidden here
+ * (`update_record_property` corrupts `many:true` fields); those go through
+ * the mirror's markdown-link frontmatter.
  *
  * Protocol verified live via the spike (initialize → tools/call round-trip):
  *  - POST JSON-RPC to `/`; Accept must allow text/event-stream.
@@ -107,49 +108,10 @@ export class ThymerMcpClient {
   }
 
   /**
-   * Find a record GUID by an exact custom-property value via the MCP `search`
-   * tool's strict-equality query syntax, e.g.
-   * `@References."Zotero Key" === "1:VS869NLS"`. `===` is STRICT (full-value
-   * match); `=` would be fuzzy — see memory `thymer-mcp-search-strict-equality`.
-   * Returns the first matching record's guid, or null.
-   *
-   * Result envelope confirmed live 2026-06-28 (workspace W3TZX0YZ…): records come
-   * back under `matching_records: [{guid, name, collection_guid, type}]` (line
-   * items, if any, are under `pages`/`total_items` instead). The collection tag
-   * (`@References`) must be a single token — a spaced collection name breaks the
-   * query parser ("Unknown magic tag"); the real collection is `References`.
-   */
-  public async searchRecordGuid(query: string): Promise<string | null> {
-    const out = await this.callTool('search', { query, limit: 5 });
-    const records = (out?.matching_records ?? []) as Array<{ guid?: string }>;
-    for (const record of Array.isArray(records) ? records : []) {
-      if (typeof record.guid === 'string' && record.guid) return record.guid;
-    }
-    return null;
-  }
-
-  /** Create a record; returns its GUID. Optional initial scalar properties. */
-  public async createRecord(
-    collection: string,
-    title: string,
-    properties?: Record<string, unknown>,
-  ): Promise<string> {
-    const out = await this.callTool('create_record', {
-      collection,
-      title,
-      ...(properties ? { properties } : {}),
-    });
-    const guid = out?.guid as string | undefined;
-    if (!guid)
-      throw new ThymerMcpError('create_record', out, 'no guid returned');
-    return guid;
-  }
-
-  /**
-   * Set a single scalar property on an existing record. SAFE here because the
-   * only field the Zotero side writes is `Sync Data` (single-value text) —
-   * `update_record_property` only mangles multi-value fields, which are entirely
-   * the reconciler's job (it reads `Sync Data` and does the structured writes).
+   * Set a single scalar property on an existing record. Only used to CLEAR
+   * previously-synced scalars (value '') — the mirror cannot clear a
+   * property (spike S2). Never call this for `many:true` fields: MCP
+   * coerces arrays to a single string and corrupts them.
    */
   public async updateRecordProperty(
     record: string,
@@ -157,6 +119,40 @@ export class ThymerMcpClient {
     value: string,
   ): Promise<void> {
     await this.callTool('update_record_property', { record, property, value });
+  }
+
+  /**
+   * The raw collection configuration (fields, choices, views). Returns the
+   * `config` object from the tool's envelope.
+   */
+  public async getCollectionConfigJson(collection: string): Promise<unknown> {
+    const out = await this.callTool('get_collection_config_json', {
+      collection,
+    });
+    const config = out?.config as unknown;
+    if (!config) {
+      throw new ThymerMcpError(
+        'get_collection_config_json',
+        out,
+        'no config returned',
+      );
+    }
+    return config;
+  }
+
+  /**
+   * Replace the collection configuration. The tool takes the COMPLETE config
+   * as a JSON string — always fetch fresh via getCollectionConfigJson
+   * immediately before, modify, and write back (read-modify-write).
+   */
+  public async updateCollectionConfigJson(
+    collection: string,
+    config: unknown,
+  ): Promise<void> {
+    await this.callTool('update_collection_config_json', {
+      collection,
+      config: JSON.stringify(config),
+    });
   }
 
   // --- transport ----------------------------------------------------------

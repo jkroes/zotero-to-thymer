@@ -41,67 +41,54 @@ function makeClient(toolPayloads: Record<string, unknown>) {
   return { client, fetch };
 }
 
-describe('ThymerMcpClient.searchRecordGuid', () => {
-  it('returns the first guid from the live `matching_records` envelope', async () => {
-    // Shape confirmed live 2026-06-28: records live under `matching_records`,
-    // NOT `results`/`records`/`items` — this guards the fix for that bug.
+describe('ThymerMcpClient.getCollectionConfigJson', () => {
+  it('unwraps the config object from the tool envelope', async () => {
     const { client } = makeClient({
-      search: {
-        total_records: 2,
-        matching_records: [{ guid: 'G1', name: 'Probe, 2026' }, { guid: 'G2' }],
+      get_collection_config_json: {
+        collection_guid: 'C1',
+        config: { ver: 1, fields: [{ id: 'tags' }] },
       },
     });
 
-    expect(await client.searchRecordGuid('q')).toBe('G1');
-  });
-
-  it('returns null when matching_records is empty', async () => {
-    const { client } = makeClient({
-      search: { total_records: 0, matching_records: [] },
+    expect(await client.getCollectionConfigJson('C1')).toStrictEqual({
+      ver: 1,
+      fields: [{ id: 'tags' }],
     });
-
-    expect(await client.searchRecordGuid('q')).toBeNull();
   });
 
-  it('passes the query and workspace through the search tool', async () => {
-    const { client, fetch } = makeClient({ search: { matching_records: [] } });
+  it('throws when no config comes back', async () => {
+    const { client } = makeClient({ get_collection_config_json: {} });
 
-    await client.searchRecordGuid('@References."Zotero Key" === "1:ABC"');
+    await expect(client.getCollectionConfigJson('C1')).rejects.toBeInstanceOf(
+      ThymerMcpError,
+    );
+  });
+});
 
-    const searchCall = fetch.mock.calls
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+describe('ThymerMcpClient.updateCollectionConfigJson', () => {
+  it('sends the complete config as a JSON string', async () => {
+    const { client, fetch } = makeClient({ update_collection_config_json: {} });
+
+    await client.updateCollectionConfigJson('C1', { ver: 1, fields: [] });
+
+    const toolCall = fetch.mock.calls
       .map(
         (c) =>
           JSON.parse((c[1] as { body: string }).body) as RpcBody & {
             params?: { name?: string; arguments?: Record<string, unknown> };
           },
       )
-      .find((b) => b.method === 'tools/call' && b.params?.name === 'search');
+      .find(
+        (b) =>
+          b.method === 'tools/call' &&
+          b.params?.name === 'update_collection_config_json',
+      );
 
-    expect(searchCall?.params?.arguments).toMatchObject({
+    expect(toolCall?.params?.arguments).toMatchObject({
       workspace: 'WS',
-      query: '@References."Zotero Key" === "1:ABC"',
+      collection: 'C1',
+      config: '{"ver":1,"fields":[]}',
     });
-  });
-});
-
-describe('ThymerMcpClient.createRecord', () => {
-  it('returns the new record guid', async () => {
-    const { client } = makeClient({
-      create_record: { created: true, guid: 'NEW' },
-    });
-
-    const guid = await client.createRecord('References', 'Title', {
-      'Zotero Key': '1:ABC',
-    });
-
-    expect(guid).toBe('NEW');
-  });
-
-  it('throws when the server returns no guid', async () => {
-    const { client } = makeClient({ create_record: {} });
-
-    await expect(client.createRecord('References', 'Title')).rejects.toThrow();
   });
 });
 
@@ -182,7 +169,7 @@ describe('ThymerMcpClient.updateRecordProperty', () => {
   it('sends the correct tool arguments', async () => {
     const { client, fetch } = makeClient({ update_record_property: {} });
 
-    await client.updateRecordProperty('REC1', 'Sync Data', '{"v":1}');
+    await client.updateRecordProperty('REC1', 'Pages', '');
 
     const toolCall = fetch.mock.calls
       .map(
@@ -200,8 +187,8 @@ describe('ThymerMcpClient.updateRecordProperty', () => {
     expect(toolCall?.params?.arguments).toMatchObject({
       workspace: 'WS',
       record: 'REC1',
-      property: 'Sync Data',
-      value: '{"v":1}',
+      property: 'Pages',
+      value: '',
     });
   });
 });
@@ -312,7 +299,7 @@ describe('ThymerMcpClient session ID', () => {
                 content: [
                   {
                     type: 'text',
-                    text: JSON.stringify({ matching_records: [] }),
+                    text: JSON.stringify({ collections: [] }),
                   },
                 ],
               },
@@ -343,7 +330,7 @@ describe('ThymerMcpClient session ID', () => {
       fetch: fetch as unknown as typeof globalThis.fetch,
     });
 
-    await client.searchRecordGuid('q');
+    await client.findCollectionGuid('References');
 
     expect(capturedSessionHeader).toBe('sess-42');
   });

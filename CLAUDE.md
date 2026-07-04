@@ -4,58 +4,95 @@ Live-sync **Zotero** library items into **Thymer**. Two halves, **both in this r
 
 - **`src/`** — a **Zotero 7 plugin** (the writer). Fork lineage: [Notero](https://github.com/dvanoni/notero)
   → `zotero-to-tana` (Zotana) → this repo (Zothymer). User-facing overview/setup in `README.md`.
-- **`thymer-plugin/`** — the **Thymer SDK reconciler** (the structured writer). A global Thymer plugin
-  that self-provisions the collections and does every write MCP can't. (Consolidated here from the
-  `thymer-playground` repo on 2026-06-28; see `thymer-plugin/README.md`.)
+- **`thymer-plugin/`** — a global Thymer plugin: self-provisions the collections on load, hosts the
+  **"Zotero: Library" import panel** and the `zotero://` link bridge. Its `Sync Data` reconcile loop
+  is **inert** under the mirror transport (nothing writes `Sync Data` anymore) but remains the write
+  engine for the import panel. (Consolidated here 2026-06-28; see `thymer-plugin/README.md`.)
 
-> **Status (2026-06-28):** the Zotero side is fully on **"Option A"** (no inbox) and **builds clean**
-> (`pnpm build` → `pnpm create-xpi` → `xpi/zothymer-<ver>.xpi`); the reconciler is **live-verified over
-> MCP**. The `.xpi` has **not yet been run inside Zotero** end-to-end. Authoritative history + verified
-> facts: **`docs/HANDOFF.md`**; port status: **`docs/PORTING.md`**.
+> **Status (2026-07-04, afternoon):** the Zotero side is on the **mirror transport (v0.2 cutover)** —
+> unit-tested (`pnpm verify`) AND **live-verified end-to-end** against a fresh (rewound) workspace:
+> entity/item/annotation files ingest in place, 60/60 annotations, relations + choice provisioning,
+> identity persisted, mirror steady-state clean. The morning's first e2e attempt hit a **runaway
+> duplicate loop** (81 copies of one record): `sanitizeFileStem` passed `?` through but the mirror's
+> own sanitizer strips it, so the mirror's guid rewrite landed at a different path and the orphan
+> file re-ingested as a NEW record every ~7 s cycle. Fixed by porting the mirror's sanitizer
+> byte-for-byte (fn `Cs` in the app bundle — see `src/content/mirror/filenames.ts`) and adding a
+> guard: every new file is now guid-polled and waitForGuids REMOVES unadopted files on timeout
+> instead of leaving echo-loop fuel. Second mirror gotcha, same day: its echo-dedup hashes file
+> CONTENT, so byte-identical new entity files imported one-per-cycle with a user-facing
+> "Duplicate files detected" toast — new entity files now carry a unique fake `created:` stamp
+> (whole batch ingests in one cycle, no toast, ZERO residue: `created` is on the importer's
+> skip-list and the mirror's rewrite replaces it; un-owned keys, by contrast, persist forever
+> as hidden `$mirror:<key>` record data). Importer key model (from the app bundle): exact
+> property-label match → normalized match → specials (`Icon:`/`Banner:` applied) → `$mirror:`
+> fallback; `guid`/`collection_guid`/`created`/`modified`/`Title`/`title` skipped — so
+> frontmatter can NEVER set a record name (filename only).
+> History + verified facts: **`docs/HANDOFF.md`** (pre-cutover),
+> **`docs/mirror-transport-spike.md`** (the evidence for this architecture); port status:
+> **`docs/PORTING.md`**.
 
-## Architecture — all-SDK-writes, "Option A" (no inbox)
+## Architecture — mirror transport ("files as the API", v0.2)
 
-The Zotero plugin is a **dumb pipe**. Per item it builds a desired-state JSON **blob** and writes it into
-the matching `References` record's **transient `Sync Data` text field** over MCP — addressing the record
-by `@References."Zotero Key" === "<key>"` (strict `===` search) and `create_record`-ing it if absent.
-It writes **only** single-value text (`Sync Data`, and `Zotero Key` on create). The **reconciler** (a
-Thymer global plugin) watches `References`, drains+clears `Sync Data`, and does **every structured write**
-— scalars, multi-value relations, entity dedup, annotations. There is **no `Zotero Inbox` collection**,
-and the Zotero side does **no schema bootstrap** (the reconciler self-provisions all collections on load).
+The Zotero plugin renders each item's desired state into **markdown files inside the Thymer
+Markdown Mirror folder** (`mirrorRoot` pref). Frontmatter carries all properties — including
+**multi-value relations as percent-encoded markdown links** — and Thymer's mirror ingests file
+changes in ~2–10 s. MCP (`127.0.0.1:13100`) remains a thin side-channel for exactly three things:
+the `thymer_ping` preflight, **choice-option provisioning** (`get/update_collection_config_json` —
+the mirror silently drops unknown choice values), and **single-value scalar clears**
+(`update_record_property` with `''` — the mirror cannot clear a property at all).
 
-Why the split: MCP **cannot** write a `many:true` relation on an existing record without corrupting it,
-so all relation/entity/annotation writes have to happen via the Thymer SDK — that's the reconciler's whole
-job. Why push from Zotero (not pull from a Thymer plugin): Zotero runs privileged Gecko JS, so
-`window.fetch` reaches `127.0.0.1:13100` without the CORS/PNA limits a Thymer plugin sandbox has.
+The sync pipeline is phased (`src/content/mirror/mirror-sync.ts`), because a relation link only
+resolves if the target RECORD exists at parse time: provision choices → entity files (People/
+Organizations, batched per job) → one guid poll → item files → one guid poll → annotation files →
+persist identity. All mirror semantics grounding this design are live-verified in
+**`docs/mirror-transport-spike.md`** (T1–T6 + addenda S1–S5): read it before touching the writer.
+Key rules baked in: fresh read before every rewrite (the mirror rewrites ingested files with
+`guid:` frontmatter); body + un-owned frontmatter keys preserved verbatim (the body is the user's
+notes); datetime fields only as full `YYYY-MM-DD`; file rename = record rename (guid stable);
+file delete = trash; zero-byte files are never ingested.
+
+Why push from Zotero (not from a Thymer plugin): Zotero runs privileged Gecko JS with filesystem
+access (`IOUtils`) and un-CORS'd `fetch`; a Thymer plugin sandbox has neither. The pre-cutover
+"Option A" blob architecture (Zotero writes a JSON blob into the `Sync Data` field, the reconciler
+plugin does every structured write) is documented in `docs/HANDOFF.md` and survives only inside
+the import panel's direct `reconcileReference` path.
 
 ### Zotero side — `src/content/`
 
+- **`mirror/`** — the transport. `fs.ts` (IOUtils/PathUtils wrapper — the mock seam for tests);
+  `frontmatter.ts` (line-based parse/merge/serialize; un-owned keys + body pass through verbatim;
+  quoting matched to observed mirror output; `mdLink` percent-encodes paths — bare parens break
+  the mirror's link parser); `filenames.ts` (`sanitizeFileStem`); `mirror-schema.ts` (blob id →
+  property label maps + live `_plugin.json` label resolution, rename-safe); `mirror-writer.ts`
+  (`ensureEntityFile` dedup-by-stem, `waitForGuids` poll, `upsertItemFile` locate-by-storedPath-
+  then-Zotero-Key-scan → rename → fresh-read-merge-write, `upsertAnnotationFiles`,
+  `deleteItemFiles`); `choice-provisioner.ts` (disk-diff fast path → MCP read-modify-write);
+  `mirror-sync.ts` (the phased pipeline; persists identity LAST so failed jobs re-run cleanly).
 - **`thymer/mcp-client.ts`** — `ThymerMcpClient`: minimal JSON-RPC client for the Thymer desktop app's
   MCP server (streamable-HTTP, `127.0.0.1:13100`). Injected `fetch` (pass the Zotero window's). Methods:
-  `initialize`, `ping` (`thymer_ping`), `findCollectionGuid` (`list_collections`), `searchRecordGuid`
-  (`search`, strict-`===`), `createRecord`, `updateRecordProperty`. Deliberately small — no multi-value
-  writes (the reconciler owns those).
+  `initialize`, `ping`, `findCollectionGuid`, `getCollectionConfigJson`/`updateCollectionConfigJson`
+  (choice provisioning; config travels as a JSON string), `updateRecordProperty` (scalar clears ONLY —
+  never multi-value fields).
 - **`thymer/desired-state.ts`** — `buildDesiredState(item)` → `DesiredState` blob: `zoteroKey`
   (`<libraryID>:<itemKey>`, group-safe), computed `title` (six title formats via `Zotero.QuickCopy`),
   `scalars`, multi-value `relations` (Creators/Editors/Contributors/Publisher), `tags`, `collections`,
   `annotations`, and a `contentSig`. Honors both the title-format pref and the Quick Copy citation style.
-- **`thymer/push.ts`** — `pushDesiredState(client, blob, priorReferenceGuid?)`: upsert. With a cached GUID
-  (or one re-found by `Zotero Key`) → `update_record_property(guid, "Sync Data", blob)`; else
-  `create_record("References", title, {Zotero Key, Sync Data})`. Returns `{referenceGuid, created}`.
+  Unchanged by the cutover — it stays the single source of desired state.
 - **`thymer/annotations.ts`** — `readItemAnnotations(item)` → `DesiredAnnotation[]` (highlight/note/image;
   `annoKey = <libraryID>:<annotationKey>`; reading-order `order`; `zotero://open-pdf` deep link).
 - **`thymer/entities.ts`** — `bucketCreators` (primary-role-aware creator routing).
 - **`data/item-data.ts`** — Zotero-side identity store. A hidden **"Thymer" link-attachment** under the
-  item carries `ThymerSyncData = {referenceGuid, zoteroKey, contentSig?}` as JSON; `referenceGuid` is the
-  durable upsert key. Both writes use `skipNotifier: true` (re-entrancy guard, below). Tag `zothymer` is
-  added to synced items.
-- **`sync/sync-job.ts`** — orchestrator. Builds `ThymerMcpClient` from prefs (`thymerWorkspace`,
-  `thymerEndpoint`), `ping()` preflight, then **`findCollectionGuid("References")` preflight** (a clear
-  error if the reconciler plugin isn't loaded, rather than minting a stray collection). Loops items;
-  skips notes.
-- **`sync/sync-regular-item.ts`** — per item: `buildDesiredState` → **contentSig skip gate** (if already
-  synced and `contentSig` unchanged, skip the MCP round-trip) → `pushDesiredState` → persist
-  `{referenceGuid, zoteroKey, contentSig}` + tag.
+  item carries `ThymerSyncData = {zoteroKey, contentSig?, referenceGuid?, filePath?, annoFiles?}` as
+  JSON. `filePath` (mirror-relative) is the primary identity; `referenceGuid` is harvested from the
+  mirror's frontmatter rewrite (optional — the import panel still supplies it directly). Writes use
+  `skipNotifier: true` (re-entrancy guard). Tag `zothymer` is added to synced items.
+- **`sync/sync-job.ts`** — orchestrator. Preflight: `mirrorRoot` pref set +
+  `<root>/<folder>/_plugin.json` exists for all four folders (proves an active mirror + provisioned
+  schema) + MCP `ping()`. Builds plans per item (notes skipped), then hands the batch to
+  `runMirrorSync`.
+- **`sync/sync-regular-item.ts`** — `buildItemPlan`: `buildDesiredState` + stored identity + the
+  **skip gate** (skip only when `contentSig` matches AND the stored mirror file still exists on
+  disk — so user-deleted files are re-created and import-panel/blob-era items get adopted).
 - **`sync/content-signature.ts`** — `contentSignature(item)` = the blob's `contentSig` (network-free), so
   the modify-skip and the reconciler's reconcile-skip share one identical signature.
 - **`services/open-handler.ts`** — `OpenHandler`: registers `POST /zothymer/open` on Zotero's built-in
@@ -80,9 +117,11 @@ contentSig?}` → `saveThymerSyncData` + tag — the same identity the push flow
   `syncingItemIDs` re-entrancy guard.
 - **`prefs/zothymer-pref.ts`** — pref accessors. Branch is **`extensions.zothymer.*`** (unique per plugin
   so Zothymer and Zotana don't share stored prefs). Prefs: `thymerWorkspace`, `thymerEndpoint`,
-  `pageTitleFormat`, `syncOnModifyItems`, `collectionSyncConfigs`.
-- **`prefs/preferences.tsx` + `preferences.xhtml`** — connection groupbox (Workspace GUID + MCP Endpoint),
-  the collection sync table, sync-on-modify, and the title-format selector.
+  `mirrorRoot` (absolute path of the Markdown Mirror folder — required for sync), `pageTitleFormat`,
+  `syncOnModifyItems`, `collectionSyncConfigs`.
+- **`prefs/preferences.tsx` + `preferences.xhtml`** — connection groupbox (Workspace GUID + MCP
+  Endpoint + Markdown Mirror folder), the collection sync table, sync-on-modify, and the
+  title-format selector.
 - **`locale/en-US/zothymer.ftl`** — Fluent source of truth for user-facing strings. All l10n ids are
   `zothymer-*`.
 

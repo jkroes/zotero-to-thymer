@@ -1,57 +1,42 @@
 /**
- * Sync one regular Zotero item to Thymer.
- *
- * All-SDK-writes "Option A" port: a thin "build blob → upsert the Reference's
- * `Sync Data` → persist identity" step. The Zotero side only writes `Sync Data`
- * (and `Zotero Key` on create); the Thymer SDK reconciler does every structured
- * write.
+ * Build the sync plan for one regular Zotero item: the desired-state blob,
+ * the stored identity, and the skip decision. The actual writing happens in
+ * the phased mirror pipeline (`mirror/mirror-sync.ts`), which needs all
+ * plans up front to batch entity files and choice provisioning.
  */
 
-import {
-  getThymerSyncData,
-  saveThymerSyncData,
-  saveThymerTag,
-} from '../data/item-data';
-import { buildDesiredState } from '../thymer/desired-state';
-import { pushDesiredState } from '../thymer/push';
+import { getThymerSyncData, type ThymerSyncData } from '../data/item-data';
+import { exists, join } from '../mirror/fs';
+import { buildDesiredState, type DesiredState } from '../thymer/desired-state';
 
-import type { SyncJobParams } from './sync-job';
+export type ItemPlan = {
+  item: Zotero.Item;
+  blob: DesiredState;
+  prior: ThymerSyncData | undefined;
+};
 
 /**
- * Returns the list of referenced-field warnings for the progress window. The
- * reconciler owns all structured writes, so the Zotero side raises none — this is
- * always empty, kept only to preserve the warning-channel signature.
+ * Returns `null` when the item can be skipped: content signature unchanged
+ * AND its mirror file is known and still on disk. A matching signature with
+ * no (or a missing) file still syncs — that re-creates user-deleted files
+ * and adopts records that were created by the import panel or the old
+ * blob transport (which stored no file path).
  */
-export async function syncRegularItem(
+export async function buildItemPlan(
   item: Zotero.Item,
-  params: SyncJobParams,
-): Promise<string[]> {
+  mirrorRoot: string,
+): Promise<ItemPlan | null> {
   const blob = await buildDesiredState(item);
   const prior = getThymerSyncData(item);
 
-  // contentSig skip gate (sig stays Zotero-side): if this item was already synced
-  // and its synced content is unchanged, the push would be a no-op (the reconciler
-  // value-diffs anyway), so skip the MCP round-trip entirely.
   if (
-    prior?.referenceGuid &&
-    prior.contentSig &&
-    prior.contentSig === blob.contentSig
+    prior?.contentSig &&
+    prior.contentSig === blob.contentSig &&
+    prior.filePath &&
+    (await exists(join(mirrorRoot, prior.filePath)))
   ) {
-    return [];
+    return null;
   }
 
-  const { referenceGuid } = await pushDesiredState(
-    params.client,
-    blob,
-    prior?.referenceGuid,
-  );
-
-  await saveThymerSyncData(item, {
-    referenceGuid,
-    zoteroKey: blob.zoteroKey,
-    contentSig: blob.contentSig,
-  });
-  await saveThymerTag(item);
-
-  return [];
+  return { item, blob, prior };
 }

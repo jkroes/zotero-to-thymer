@@ -5,10 +5,11 @@ import { isObject } from '../utils';
  *
  * A child link-attachment titled "Thymer" (visible under the item) carries a
  * durable JSON blob so re-syncs can find and update the same `References` record.
- * In the all-SDK-writes "Option A" architecture the Zotero side writes the
- * desired-state blob straight onto the Reference's `Sync Data` field, so the
- * stored identity is the REFERENCE record GUID (re-found by `Zotero Key` when the
- * cache is absent).
+ * In the mirror-transport architecture the primary identity is the item's
+ * FILE PATH inside the Markdown Mirror (re-found by a `Zotero Key`
+ * frontmatter scan when the cache is absent or stale); the record GUID is
+ * harvested opportunistically from the mirror's frontmatter rewrite and kept
+ * for deep links and MCP scalar clears.
  */
 
 const THYMER_SYNC_DATA_ID = 'thymer-sync-data';
@@ -17,9 +18,14 @@ const THYMER_LINK_TITLE = 'Thymer';
 export const THYMER_TAG_NAME = 'zothymer';
 
 export type ThymerSyncData = {
-  /** GUID of the item's record in the Thymer `References` collection (upsert key). */
-  referenceGuid: string;
-  /** `<libraryID>:<itemKey>` — the identity the reconciler joins on. */
+  /**
+   * GUID of the item's record in the Thymer `References` collection.
+   * Optional: a mirror-transport sync may persist before the mirror has
+   * ingested the file (the guid is harvested on a later sync). The
+   * import-panel `/mark-synced` path always supplies it.
+   */
+  referenceGuid?: string;
+  /** `<libraryID>:<itemKey>` — the join identity (also written to frontmatter). */
   zoteroKey: string;
   /**
    * Network-free signature of the item's synced source content at the last sync
@@ -27,11 +33,18 @@ export type ThymerSyncData = {
    * signature against this to skip no-op re-pushes. Absent before first sync.
    */
   contentSig?: string;
+  /** Path of the item's mirror file, relative to the mirror root. */
+  filePath?: string;
+  /** annoKey → mirror-relative path of each synced annotation file. */
+  annoFiles?: Record<string, string>;
 };
 
 /** A `thymer:` deep link is cosmetic; the durable data is the attachment note. */
-function referenceURL(referenceGuid: string): string {
-  return `thymer:ref:${encodeURIComponent(referenceGuid)}`;
+function referenceURL(data: ThymerSyncData): string {
+  if (data.referenceGuid) {
+    return `thymer:ref:${encodeURIComponent(data.referenceGuid)}`;
+  }
+  return `thymer:key:${encodeURIComponent(data.zoteroKey)}`;
 }
 
 function readSyncData(attachment: Zotero.Item): ThymerSyncData | undefined {
@@ -49,20 +62,31 @@ function readSyncData(attachment: Zotero.Item): ThymerSyncData | undefined {
     return undefined;
   }
 
-  if (
-    !isObject(parsed) ||
-    typeof parsed.referenceGuid !== 'string' ||
-    typeof parsed.zoteroKey !== 'string'
-  ) {
+  if (!isObject(parsed) || typeof parsed.zoteroKey !== 'string') {
     return undefined;
   }
 
   return {
-    referenceGuid: parsed.referenceGuid,
+    referenceGuid:
+      typeof parsed.referenceGuid === 'string' && parsed.referenceGuid
+        ? parsed.referenceGuid
+        : undefined,
     zoteroKey: parsed.zoteroKey,
     contentSig:
       typeof parsed.contentSig === 'string' ? parsed.contentSig : undefined,
+    filePath:
+      typeof parsed.filePath === 'string' && parsed.filePath
+        ? parsed.filePath
+        : undefined,
+    annoFiles: isStringRecord(parsed.annoFiles) ? parsed.annoFiles : undefined,
   };
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    isObject(value) &&
+    Object.values(value).every((entry) => typeof entry === 'string')
+  );
 }
 
 function getAllThymerLinkAttachments(item: Zotero.Item): Zotero.Item[] {
@@ -109,7 +133,7 @@ export async function saveThymerSyncData(
   }
 
   let attachment = attachments[0];
-  const url = referenceURL(data.referenceGuid);
+  const url = referenceURL(data);
 
   if (attachment) {
     attachment.setField('url', url);

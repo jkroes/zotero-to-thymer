@@ -10,6 +10,8 @@ export type FluentMessageId =
   | 'zothymer-preferences-thymer-workspace-input'
   | 'zothymer-preferences-thymer-endpoint-label'
   | 'zothymer-preferences-thymer-endpoint-input'
+  | 'zothymer-preferences-mirror-root-label'
+  | 'zothymer-preferences-mirror-root-input'
   | 'zothymer-preferences-properties-groupbox-heading'
   | 'zothymer-preferences-properties-groupbox-description'
   | 'zothymer-preferences-page-title-format'
@@ -30,4 +32,7 @@ export type FluentMessageId =
   | 'zothymer-warning-headline'
   | 'zothymer-warning-referenced-fields'
   | 'zothymer-error-missing-pref'
-  | 'zothymer-error-tana-unreachable';
+  | 'zothymer-error-tana-unreachable'
+  | 'zothymer-error-mirror-root-missing'
+  | 'zothymer-error-mirror-root-invalid'
+  | 'zothymer-error-mirror-ingest-timeout';

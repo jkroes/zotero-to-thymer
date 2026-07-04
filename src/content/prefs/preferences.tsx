@@ -21,6 +21,7 @@ class Preferences {
 
     this.initTextPref('zothymer-thymerWorkspace', ZothymerPref.thymerWorkspace);
     this.initTextPref('zothymer-thymerEndpoint', ZothymerPref.thymerEndpoint);
+    this.initTextPref('zothymer-mirrorRoot', ZothymerPref.mirrorRoot);
 
     await this.initPageTitleFormatSelect();
     await this.initSyncConfigsTable();

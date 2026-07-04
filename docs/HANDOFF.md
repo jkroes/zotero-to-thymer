@@ -1,5 +1,55 @@
 # HANDOFF — Zotero → Thymer sync
 
+## ⏩ RESUME HERE (2026-07-04 — MIRROR-TRANSPORT CUTOVER, v0.2)
+
+**Status:** the Zotero side was **cut over from the `Sync Data` blob to the Markdown Mirror as the
+push transport** (user-approved clean cutover; plan + evidence in `docs/mirror-transport-spike.md` —
+read it before touching the writer). All unit-level work is done and green (**186 tests, tsc clean,
+lint below main's baseline**); the **live E2E in Zotero is IN PROGRESS** — three real-world bugs were
+found and fixed across successive attempts; the fourth attempt was pending when this was written.
+
+**What changed** (all uncommitted in the working tree on top of `1bf51a2` unless noted):
+
+- New `src/content/mirror/` package: `fs.ts` (IOUtils wrapper), `frontmatter.ts` (verbatim-preserving
+  merge), `filenames.ts`, `mirror-schema.ts` (id→label + live `_plugin.json`), `mirror-writer.ts`,
+  `choice-provisioner.ts`, `mirror-sync.ts` (phased pipeline: provision → entity files → guid poll →
+  item files → guid poll → annotations → persist LAST). `thymer/push.ts` DELETED; `mcp-client.ts`
+  reduced to ping + `get/update_collection_config_json` + `updateRecordProperty` (scalar clears only);
+  `sync-regular-item.ts` → plan builder with a file-existence-aware skip gate; `item-data.ts` grew
+  `{filePath, annoFiles}`, `referenceGuid` now optional; new required pref
+  `extensions.zothymer.mirrorRoot` (set live: `/Users/jkroes/Documents/testing`).
+  **`thymer-plugin/` untouched** — its blob loop is inert (nothing writes `Sync Data`); the import
+  panel + schema provisioning + zotero:// bridge still stand. Architecture rewrite: `CLAUDE.md`.
+- Committed separately: `1bf51a2` (linter modernizations to pre-mirror code, 2 files). The pull-based
+  import remains at `c27c517` — the pre-mirror fallback point.
+
+**Live-E2E findings so far (each fixed + regression-tested, xpi rebuilt each time):**
+
+1. **Gecko `PathUtils.join` rejects components containing `/`** (`NS_ERROR_FILE_UNRECOGNIZED_PATH`) —
+   the fs wrapper now splits mirror-relative parts into single components (`fs.spec.ts` enforces it).
+2. **Real ingest latency ≫ spike latency**: idle mirror ingests in 2–10 s, but a real batch (7 entity
+   files + choice provisioning re-exporting `_plugin.json`) took ~60 s → `waitForGuids` deadline
+   raised 30 s → **180 s**.
+3. **`DOMException` is not a global in Zotero's plugin bootstrap scope** (loadSubScript injects a
+   hand-picked set: `DOMParser`/`setTimeout`/`TextEncoder` yes, `DOMException` no) — not-found
+   detection duck-types on `error.name === 'NotFoundError'` now.
+
+Confirmed working in the failed attempts (evidence the design holds): choice provisioning added real
+Container/Collections options without disturbing the schema; entity files were ingested with guids;
+aborted runs persisted nothing and re-runs resume cleanly (idempotent upserts + Zotero-Key relocation).
+
+**Next steps:** (1) user reinstalls `xpi/zothymer-0.1.0-…xpi` (build 2026-07-04 09:29) and re-syncs;
+(2) verify over MCP: multi-value Creators, provisioned choices selected, `Sync Data` stays empty,
+annotation `Reference` links; (3) run the remaining E2E checks — body preservation, retitle → file
+rename (guid stable), annotation delete → trash, second sync no-op; (4) clean up ZZ/test artifacts;
+(5) commit the cutover; (6) consider trimming the reconciler docs/README to reflect inert-loop status.
+
+---
+
+_Everything below is the pre-cutover (blob-architecture) record — still the best reference for the
+reconciler internals, MCP gotchas, and how the design got here. The "Option A" blob path it describes
+now survives only inside the import panel's direct `reconcileReference` call._
+
 **Date:** 2026-06-28 (sessions 4–5) · **Status:** ✅ **BOTH HALVES ON "OPTION A", COMMITTED, RECONCILER
 LIVE-VERIFIED.** Session 4: reconciler rework done + live-verified (no inbox; no `Content Sig`; identity
 on the Reference). Session 5: (a) **full zotana-CATALOG schema fidelity** on both halves (all 31 fields;
@@ -22,7 +72,7 @@ Working orientation: `CLAUDE.md`. Specs: `thymer-plugin/reconciler-design.md` (n
 `zotana-schema-fidelity`.
 The history below (architecture + verified facts) is the record of how we got here.
 
-## ⏩ RESUME HERE
+## Pre-cutover orientation (was "RESUME HERE", 2026-06-28)
 
 A **Zotero → Thymer** live-sync, all-SDK-writes, **"Option A" (no inbox)**. Two halves, **both now in
 this repo** (`~/repos/zotero-to-thymer`) — the Thymer reconciler was consolidated here from the
