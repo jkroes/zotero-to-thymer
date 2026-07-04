@@ -747,8 +747,8 @@ class Plugin extends AppPlugin {
     for (let i = 0; i < 10; i++) {
       const prop = target.prop(label);
       if (prop) {
-        const have = [...prop.selectedChoiceLabels()].sort();
-        const want = [...clean].sort();
+        const have = [...prop.selectedChoiceLabels()].toSorted();
+        const want = [...clean].toSorted();
         if (have.length === want.length && have.every((v, j) => v === want[j]))
           return;
         const ok = prop.setChoice(clean.length ? clean : []);
@@ -920,7 +920,7 @@ class Plugin extends AppPlugin {
     try {
       resp = await fetch(url, opts);
     } catch (e) {
-      throw new Error('UNREACHABLE');
+      throw new Error('UNREACHABLE', { cause: e });
     }
     if (resp.status === 403) throw new Error('TOKEN');
     if (!resp.ok) {

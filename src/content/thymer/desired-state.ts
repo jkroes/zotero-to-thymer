@@ -184,14 +184,14 @@ export function signatureOf(blob: DesiredState): string {
   for (const [rel, entities] of Object.entries(blob.relations)) {
     parts.push(`r:${rel}=${entities.map((e) => e.name).join('|')}`);
   }
-  parts.push(`tags=${[...blob.tags].sort().join('|')}`);
-  parts.push(`collections=${[...blob.collections].sort().join('|')}`);
+  parts.push(`tags=${[...blob.tags].toSorted().join('|')}`);
+  parts.push(`collections=${[...blob.collections].toSorted().join('|')}`);
   for (const a of blob.annotations) {
     parts.push(
       `a:${a.annoKey}=${a.type}|${a.text ?? ''}|${a.comment ?? ''}|${a.page ?? ''}|${a.order ?? ''}`,
     );
   }
-  return parts.sort().join('\n');
+  return parts.toSorted().join('\n');
 }
 
 // --- extraction helpers -------------------------------------------------------
