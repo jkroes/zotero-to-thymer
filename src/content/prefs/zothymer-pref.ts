@@ -15,13 +15,6 @@ export enum ZothymerPref {
    * is the push transport.
    */
   mirrorRoot = 'mirrorRoot',
-  /**
-   * Shared secret for the /zothymer/library/* HTTP endpoints. Auto-generated on
-   * first startup; the Thymer plugin must send it as a `token` query param
-   * (ACAO:* makes the endpoints reachable from any local browser page, so
-   * requests are gated on this token).
-   */
-  libraryToken = 'libraryToken',
 }
 
 export enum PageTitleFormat {
@@ -57,7 +50,6 @@ type ZothymerPrefValue = Partial<{
   [ZothymerPref.thymerWorkspace]: string;
   [ZothymerPref.thymerEndpoint]: string;
   [ZothymerPref.mirrorRoot]: string;
-  [ZothymerPref.libraryToken]: string;
 }>;
 
 function buildFullPrefName(pref: ZothymerPref): string {
@@ -106,7 +98,6 @@ function convertRawPrefValue<P extends ZothymerPref>(
     [ZothymerPref.thymerWorkspace]: stringPref,
     [ZothymerPref.thymerEndpoint]: stringPref,
     [ZothymerPref.mirrorRoot]: stringPref,
-    [ZothymerPref.libraryToken]: stringPref,
   }[pref];
 }
 

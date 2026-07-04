@@ -238,14 +238,8 @@ declare namespace Zotero {
     getTopLevel(items: Item[]): Item[];
   }
 
-  interface Library {
-    libraryID: number;
-    name: string;
-  }
-
   interface Libraries {
     userLibraryID: number;
-    getAll(): Library[];
   }
 
   interface Group {
@@ -520,12 +514,6 @@ declare namespace Zotero {
     selectItem(itemID: DataObjectID, inLibraryRoot?: boolean): Promise<void>;
   }
 
-  interface Search {
-    libraryID: number;
-    addCondition(condition: string, operator: string, value?: string): number;
-    search(): Promise<DataObjectID[]>;
-  }
-
   interface ServerEndpoint {
     supportedMethods: string[];
     supportedDataTypes: string[];
@@ -569,7 +557,6 @@ declare interface Zotero {
   Prefs: Zotero.Prefs;
   ProgressWindow: Zotero.ProgressWindow;
   QuickCopy: Zotero.QuickCopy;
-  Search: new () => Zotero.Search;
   Server: Zotero.Server;
   URI: Zotero.URI;
   Users: Zotero.Users;

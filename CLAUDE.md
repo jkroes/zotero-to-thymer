@@ -4,10 +4,12 @@ Live-sync **Zotero** library items into **Thymer**. Two halves, **both in this r
 
 - **`src/`** — a **Zotero 7 plugin** (the writer). Fork lineage: [Notero](https://github.com/dvanoni/notero)
   → `zotero-to-tana` (Zotana) → this repo (Zothymer). User-facing overview/setup in `README.md`.
-- **`thymer-plugin/`** — a global Thymer plugin: self-provisions the collections on load, hosts the
-  **"Zotero: Library" import panel** and the `zotero://` link bridge. Its `Sync Data` reconcile loop
-  is **inert** under the mirror transport (nothing writes `Sync Data` anymore) but remains the write
-  engine for the import panel. (Consolidated here 2026-06-28; see `thymer-plugin/README.md`.)
+- **`thymer-plugin/`** — a global Thymer plugin: self-provisions the collections on load and hosts
+  the `zotero://` link bridge. Its `Sync Data` reconcile loop is **inert** under the mirror
+  transport (nothing writes `Sync Data` anymore). (Consolidated here 2026-06-28; see
+  `thymer-plugin/README.md`.) The **"Zotero: Library" import panel** (and its Zotero-side support:
+  `library-handler.ts` HTTP API, `token-registrar.ts`, the `libraryToken` pref) lives on the
+  **`dev` branch only** — removed from `main` 2026-07-04.
 
 > **Status (2026-07-04, afternoon):** the Zotero side is on the **mirror transport (v0.2 cutover)** —
 > unit-tested (`pnpm verify`) AND **live-verified end-to-end** against a fresh (rewound) workspace:
@@ -100,18 +102,6 @@ the import panel's direct `reconcileReference` path.
   For `select` URIs → `ZoteroPane.selectItem`; for `open-pdf` URIs → `Zotero.FileHandlers.open` with
   `{ location: { annotationID } }`. Brings Zotero to front via `Zotero.Utilities.Internal.activate()`.
   Sets `allowRequestsFromUnsafeWebContent = true` to bypass the Connector's browser-origin gate.
-- **`services/library-handler.ts`** — `LibraryHandler`: the pull-based library API for the Thymer
-  plugin's "Zotero: Library" panel. Registers on the same Connector server:
-  `GET /zothymer/library/ping` (handshake, no token), `GET /zothymer/library/search?q=&token=`
-  (quicksearch across all libraries → `LibraryItemSummary[]` incl. `synced`/`referenceGuid`),
-  `GET /zothymer/library/item?key=<libraryID:itemKey>&token=` (full `buildDesiredState` blob), and
-  `POST /zothymer/library/mark-synced?token=` (text/plain JSON `{zoteroKey, referenceGuid,
-contentSig?}` → `saveThymerSyncData` + tag — the same identity the push flow persists). All
-  responses carry `Access-Control-Allow-Origin: *`; every data endpoint is gated on the
-  auto-generated `extensions.zothymer.libraryToken` pref. CORS constraints (verified live
-  2026-07-03): Zotero drops Origin-bearing requests unless the endpoint sets
-  `allowRequestsFromUnsafeWebContent`; preflight can never succeed (Zotero answers OPTIONS itself,
-  no CORS headers) → simple requests only (GET, or POST text/plain).
 - **`services/sync-manager.ts`** — global
   `SYNC_DEBOUNCE_MS` (5 s) coalescing, the modify-path content-signature no-op skip, and the
   `syncingItemIDs` re-entrancy guard.
@@ -126,18 +116,6 @@ contentSig?}` → `saveThymerSyncData` + tag — the same identity the push flow
   `zothymer-*`.
 
 ### Thymer side — `thymer-plugin/`
-
-The plugin also provides the **"Zotero: Library" panel** (command palette → custom panel): search
-the live Zotero library over `GET /zothymer/library/search`, then **Import** fetches the item's
-desired-state blob (`/zothymer/library/item`) and feeds it **directly to `reconcileReference`** —
-no `Sync Data` mailbox, no MCP hop — then POSTs `/zothymer/library/mark-synced` so Zotero stores
-the same identity attachment the push flow writes (both flows stay convergent; the auto-sync
-modify path picks the item up from there). Auth: ZERO-CONFIG — each desktop's Zotero
-self-registers its auto-generated `extensions.zothymer.libraryToken` into the plugin config's
-`custom.libraryTokens` list over MCP (`token-registrar.ts`, called from LibraryHandler startup
-and the sync preflight); the panel probes the list until one token authenticates against the
-LOCAL Zotero and caches the winner (the config syncs across devices, the endpoint is always
-127.0.0.1 — hence a list, one entry per desktop). Legacy `custom.libraryToken` still honored.
 
 A global Thymer plugin (`plugin.js`) that, on load, **self-provisions 6 collections** —
 `People` / `Organizations` / `Zotero Tags` / `Zotero Collections` / `References` / `Annotations` (no
@@ -262,7 +240,10 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
 - **Live-verified end-to-end (2026-06-28):** `pnpm start` → synced 12 real Zotero items → all 12
   `References` records created in Thymer, `Sync Data` cleared by reconciler, scalars + multi-value
   relations (up to 26 creators) + annotations all written correctly.
-- **Library pull flow — LIVE-VERIFIED END-TO-END (2026-07-03).** Full loop exercised in the real
+- **Library pull flow — LIVE-VERIFIED END-TO-END (2026-07-03); moved to the `dev` branch
+  2026-07-04 (feature removed from `main`, incl. `library-handler.ts` + `token-registrar.ts`
+  and the plugin panel — the SDK gotchas below were fixed on `main` and stay).** Full loop
+  exercised in the real
   apps: xpi installed in Zotero 9.0.4 (endpoints return `ACAO: *` on Origin-bearing requests,
   token gating 403s, search/item real data, malformed inputs 400/404), Thymer global plugin
   "Zotero Sync" (guid `16VJ18PT2GC3SN3D386Q074PTG`) deployed via `thymercli plugin update code`,

@@ -60,18 +60,6 @@ The reconciler does all the structured writes that MCP can't (multi-value relati
 
 A progress window shows sync status. If nothing changed since the last sync (based on a content signature), the push is skipped entirely.
 
-### Importing from inside Thymer ("Zotero: Library")
-
-You can also pull items in without touching Zotero: open the command palette in Thymer and run
-**Zotero: Library**. Search your live Zotero library, then **Import** writes the full structured
-record immediately (and tells Zotero, so future edits auto-sync). Items already synced show
-**Open** / **Re-import** instead.
-
-One-time setup: in Zotero, open Settings → Advanced → Config Editor, copy the value of
-`extensions.zothymer.libraryToken` (auto-generated on first run), and paste it into the Thymer
-plugin's Configuration as `"custom": { "libraryToken": "<value>" }`. The token gates the local
-HTTP API the panel talks to.
-
 ### Deep links
 
 Each Reference in Thymer has an **Item Link** that opens the item in Zotero, and each annotation has a **PDF Link** that jumps to that annotation in Zotero's PDF reader. Clicking these links in Thymer opens Zotero directly (or copies the link to clipboard if Zotero isn't running).
