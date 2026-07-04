@@ -14,7 +14,9 @@ import {
   extractYear,
   zoteroKeyOf,
 } from '../thymer/desired-state';
-import { isObject, logger } from '../utils';
+import { ThymerMcpClient } from '../thymer/mcp-client';
+import { ensureLibraryTokenRegistered } from '../thymer/token-registrar';
+import { getMainWindow, isObject, logger } from '../utils';
 
 import type { Service, ServiceParams } from './service';
 
@@ -188,6 +190,12 @@ export class LibraryHandler implements Service {
       );
     }
 
+    // Zero-config pairing: hand this install's token to the Thymer plugin
+    // config over MCP so the library panel authenticates without the user
+    // copying tokens between apps. Best-effort — Thymer may not be running
+    // yet; the sync preflight retries.
+    void this.registerTokenWithThymer();
+
     const version = pluginInfo.version;
 
     const endpoints: Record<string, new () => object> = {
@@ -315,6 +323,25 @@ export class LibraryHandler implements Service {
       Zotero.Server.Endpoints[path] =
         EndpointClass as unknown as (typeof Zotero.Server.Endpoints)[string];
       logger.log('Registered HTTP endpoint: ' + path);
+    }
+  }
+
+  private async registerTokenWithThymer(): Promise<void> {
+    try {
+      const workspace = getZothymerPref(ZothymerPref.thymerWorkspace);
+      if (!workspace || typeof workspace !== 'string') return;
+      const endpoint = getZothymerPref(ZothymerPref.thymerEndpoint);
+      const window = getMainWindow();
+      const client = new ThymerMcpClient({
+        workspace,
+        endpoint:
+          typeof endpoint === 'string' && endpoint ? endpoint : undefined,
+        fetch: window.fetch.bind(window),
+      });
+      if (!(await client.ping())) return; // Thymer closed — preflight retries
+      await ensureLibraryTokenRegistered(client);
+    } catch (error) {
+      logger.debug(`Library token registration deferred: ${String(error)}`);
     }
   }
 

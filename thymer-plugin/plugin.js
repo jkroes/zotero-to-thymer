@@ -894,19 +894,57 @@ class Plugin extends AppPlugin {
   // (GET with query params, POST with text/plain body); responses carry ACAO:* so they're readable
   // here; every data endpoint requires the shared `token` query param.
 
+  // Token model: each desktop's Zotero AUTO-REGISTERS its own token into
+  // custom.libraryTokens over MCP (token-registrar.ts on the Zotero side) —
+  // the user never copies tokens. The config syncs to every device but this
+  // panel always talks to the LOCAL Zotero, so we probe the list until one
+  // token authenticates and cache the winner for the session. The legacy
+  // single custom.libraryToken field is still honored as one more candidate.
   libraryConfig() {
     const conf = (this.getConfiguration && this.getConfiguration()) || {};
     const custom = conf.custom || {};
+    const tokens = [];
+    if (Array.isArray(custom.libraryTokens)) {
+      for (const t of custom.libraryTokens) if (t) tokens.push(String(t));
+    }
+    if (custom.libraryToken) tokens.push(String(custom.libraryToken));
     return {
       endpoint: String(
         custom.zoteroEndpoint || 'http://127.0.0.1:23119',
       ).replace(/\/+$/, ''),
-      token: String(custom.libraryToken || ''),
+      tokens,
     };
   }
 
   async libraryFetch(path, params = {}, post = null) {
-    const { endpoint, token } = this.libraryConfig();
+    const { endpoint, tokens } = this.libraryConfig();
+    if (!tokens.length) throw new Error('TOKEN');
+    // Last-known-good token first; the others only on a 403 (a wrong token
+    // has no side effects — every endpoint rejects before doing work).
+    const candidates = [
+      ...new Set([this._libToken, ...tokens].filter(Boolean)),
+    ];
+    let tokenError = null;
+    for (const token of candidates) {
+      try {
+        const out = await this.libraryFetchWith(
+          endpoint,
+          token,
+          path,
+          params,
+          post,
+        );
+        this._libToken = token;
+        return out;
+      } catch (e) {
+        if (String((e && e.message) || e) !== 'TOKEN') throw e;
+        tokenError = e;
+      }
+    }
+    throw tokenError || new Error('TOKEN');
+  }
+
+  async libraryFetchWith(endpoint, token, path, params, post) {
     const usp = new URLSearchParams({ ...params, token });
     const url = endpoint + path + '?' + usp.toString();
     const opts = post
@@ -941,9 +979,9 @@ class Plugin extends AppPlugin {
       return 'Zotero unreachable — is Zotero running with the Zothymer add-on?';
     if (m === 'TOKEN')
       return (
-        'Token rejected. In Zotero: Settings → Advanced → Config Editor → ' +
-        "extensions.zothymer.libraryToken; paste it into this plugin's Configuration as " +
-        '"custom": {"libraryToken": "..."}.'
+        'No access token for this computer yet. Start Zotero (with the ' +
+        'Zothymer add-on) while Thymer is running — it registers its token ' +
+        'automatically — then retry.'
       );
     return 'Error: ' + m;
   }

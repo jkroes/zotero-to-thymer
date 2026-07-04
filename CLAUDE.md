@@ -132,9 +132,12 @@ the live Zotero library over `GET /zothymer/library/search`, then **Import** fet
 desired-state blob (`/zothymer/library/item`) and feeds it **directly to `reconcileReference`** —
 no `Sync Data` mailbox, no MCP hop — then POSTs `/zothymer/library/mark-synced` so Zotero stores
 the same identity attachment the push flow writes (both flows stay convergent; the auto-sync
-modify path picks the item up from there). Config: paste the token from Zotero's
-`extensions.zothymer.libraryToken` pref (Settings → Advanced → Config Editor) into the plugin
-Configuration's `custom.libraryToken`.
+modify path picks the item up from there). Auth: ZERO-CONFIG — each desktop's Zotero
+self-registers its auto-generated `extensions.zothymer.libraryToken` into the plugin config's
+`custom.libraryTokens` list over MCP (`token-registrar.ts`, called from LibraryHandler startup
+and the sync preflight); the panel probes the list until one token authenticates against the
+LOCAL Zotero and caches the winner (the config syncs across devices, the endpoint is always
+127.0.0.1 — hence a list, one entry per desktop). Legacy `custom.libraryToken` still honored.
 
 A global Thymer plugin (`plugin.js`) that, on load, **self-provisions 6 collections** —
 `People` / `Organizations` / `Zotero Tags` / `Zotero Collections` / `References` / `Annotations` (no

@@ -2,10 +2,10 @@
   "ver": 1,
   "name": "Zotero Sync",
   "icon": "book",
-  "description": "SDK-side reconciler for Zotero → Thymer sync. Drains desired-state blobs from the 'Zotero Inbox' collection into 'References' (scalars + multi-value relations + annotations) — the multi-value writes MCP can't do. Global plugin; self-provisions its collections. Also provides the 'Zotero: Library' pull-based search/import panel (set custom.libraryToken from Zotero's extensions.zothymer.libraryToken pref).",
+  "description": "SDK-side reconciler for Zotero → Thymer sync. Drains desired-state blobs from References' 'Sync Data' into structured fields (scalars + multi-value relations + annotations) — the multi-value writes MCP can't do. Global plugin; self-provisions its collections. Also provides the 'Zotero: Library' pull-based search/import panel; each desktop's Zotero auto-registers its access token into custom.libraryTokens over MCP (no manual token setup).",
   "off": false,
   "custom": {
-    "libraryToken": "",
+    "libraryTokens": [],
     "zoteroEndpoint": "http://127.0.0.1:23119"
   }
 }

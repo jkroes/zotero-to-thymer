@@ -155,6 +155,43 @@ export class ThymerMcpClient {
     });
   }
 
+  /**
+   * The Thymer plugin's JSON configuration, parsed. `plugin` is a plugin
+   * name or guid. The tool wraps it as `{config}` (object or JSON string
+   * depending on server version) — normalize to an object.
+   */
+  public async getPluginJsonConfig(
+    plugin: string,
+  ): Promise<Record<string, unknown> | null> {
+    const out = await this.callTool('get_plugin_json_config', { plugin });
+    const config = (out?.config ?? out) as unknown;
+    if (typeof config === 'string') {
+      try {
+        return JSON.parse(config) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    }
+    return config && typeof config === 'object'
+      ? (config as Record<string, unknown>)
+      : null;
+  }
+
+  /**
+   * Replace the plugin configuration (the tool takes the COMPLETE config as
+   * a JSON string — read-modify-write via getPluginJsonConfig). NOTE: a
+   * config write reloads the Thymer plugin; only write on a real change.
+   */
+  public async updatePluginJsonConfig(
+    plugin: string,
+    config: unknown,
+  ): Promise<void> {
+    await this.callTool('update_plugin_json_config', {
+      plugin,
+      config: JSON.stringify(config),
+    });
+  }
+
   // --- transport ----------------------------------------------------------
 
   /** tools/call wrapper: unwraps result.content[].text (JSON when parseable). */

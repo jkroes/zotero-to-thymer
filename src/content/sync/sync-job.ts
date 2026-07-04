@@ -8,6 +8,7 @@ import {
   getZothymerPref,
 } from '../prefs/zothymer-pref';
 import { ThymerMcpClient } from '../thymer/mcp-client';
+import { ensureLibraryTokenRegistered } from '../thymer/token-registrar';
 import { getLocalizedErrorMessage, logger } from '../utils';
 
 import { ProgressWindow } from './progress-window';
@@ -73,6 +74,10 @@ async function prepareSyncJob(window: Window): Promise<SyncJobParams> {
       'zothymer-error-tana-unreachable',
     );
   }
+
+  // Zero-config pairing for the library panel: piggyback on the live MCP
+  // connection (no-op after the first success this session).
+  void ensureLibraryTokenRegistered(client);
 
   return { client, mirrorRoot };
 }
