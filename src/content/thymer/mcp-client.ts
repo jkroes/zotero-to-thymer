@@ -99,6 +99,8 @@ export class ThymerMcpClient {
   /** Resolve a collection GUID by name (the reconciler provisions `References`). */
   public async findCollectionGuid(name: string): Promise<string | null> {
     const out = await this.callTool('list_collections', {});
+    // MCP returns untyped JSON; shape-cast the collections list at the boundary.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     const list = (out?.collections ?? out ?? []) as Array<{
       guid?: string;
       name?: string;

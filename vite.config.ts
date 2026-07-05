@@ -26,7 +26,10 @@ export default defineConfig({
       'shared-node-browser': true,
       es2022: true,
     },
-    ignorePatterns: ['build', 'gen'],
+    // thymer-plugin/ is a standalone Thymer plugin (plain JS on SDK globals) that is
+    // deliberately outside tsconfig's `include`, so type-aware lint can only see `any`
+    // there and fires spurious no-unsafe-* — don't lint it.
+    ignorePatterns: ['build', 'gen', 'thymer-plugin'],
     rules: {
       'import/no-default-export': 'error',
       'no-console': 'error',
@@ -54,6 +57,9 @@ export default defineConfig({
           'vitest/require-mock-type-parameters': 'off',
           'typescript/no-explicit-any': 'off',
           'typescript/no-unsafe-type-assertion': 'off',
+          // Tests assert invariants (e.g. `expect(result).toHaveLength(1)`) and then
+          // index into the result; `!` after such asserts is idiomatic here.
+          'typescript/no-non-null-assertion': 'off',
         },
       },
     ],

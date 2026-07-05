@@ -51,23 +51,23 @@ describe('normalizeDate', () => {
 
 // --- signatureOf (pure, operates on the blob) --------------------------------
 
-describe('signatureOf', () => {
-  function minimalBlob(overrides: Partial<DesiredState> = {}): DesiredState {
-    return {
-      v: 1,
-      zoteroKey: '1:ABC',
-      itemType: 'journalArticle',
-      title: 'Test',
-      zoteroLink: 'zotero://select/library/items/ABC',
-      scalars: {},
-      relations: { Creators: [], Editors: [], Contributors: [], Publisher: [] },
-      tags: [],
-      collections: [],
-      annotations: [],
-      ...overrides,
-    };
-  }
+function minimalBlob(overrides: Partial<DesiredState> = {}): DesiredState {
+  return {
+    v: 1,
+    zoteroKey: '1:ABC',
+    itemType: 'journalArticle',
+    title: 'Test',
+    zoteroLink: 'zotero://select/library/items/ABC',
+    scalars: {},
+    relations: { Creators: [], Editors: [], Contributors: [], Publisher: [] },
+    tags: [],
+    collections: [],
+    annotations: [],
+    ...overrides,
+  };
+}
 
+describe('signatureOf', () => {
   it('produces a stable signature for the same input', () => {
     const blob = minimalBlob({ scalars: { doi: 'https://doi.org/10.1234' } });
 

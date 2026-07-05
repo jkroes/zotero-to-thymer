@@ -35,7 +35,6 @@ function makeClient(toolPayloads: Record<string, unknown>) {
   const fetch = fakeFetch(toolPayloads);
   const client = new ThymerMcpClient({
     workspace: 'WS',
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
     fetch: fetch as unknown as typeof globalThis.fetch,
   });
   return { client, fetch };
@@ -126,7 +125,6 @@ describe('ThymerMcpClient.ping', () => {
     const fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
     const client = new ThymerMcpClient({
       workspace: 'WS',
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       fetch: fetch as unknown as typeof globalThis.fetch,
     });
 
@@ -215,7 +213,6 @@ describe('ThymerMcpClient error handling', () => {
 
     const client = new ThymerMcpClient({
       workspace: 'WS',
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       fetch: fetch as unknown as typeof globalThis.fetch,
     });
 
@@ -237,7 +234,6 @@ describe('ThymerMcpClient error handling', () => {
 
     const client = new ThymerMcpClient({
       workspace: 'WS',
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       fetch: fetch as unknown as typeof globalThis.fetch,
     });
 
@@ -271,7 +267,6 @@ describe('ThymerMcpClient SSE handling', () => {
 
     const client = new ThymerMcpClient({
       workspace: 'WS',
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       fetch: fetch as unknown as typeof globalThis.fetch,
     });
 
@@ -326,7 +321,6 @@ describe('ThymerMcpClient session ID', () => {
 
     const client = new ThymerMcpClient({
       workspace: 'WS',
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       fetch: fetch as unknown as typeof globalThis.fetch,
     });
 

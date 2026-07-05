@@ -66,6 +66,14 @@ export function zoteroKeyOf(item: Zotero.Item): string {
   return `${item.libraryID}:${item.key}`;
 }
 
+/** Map bucketed creator links to desired-state entities. */
+function toEntities(links: { name: string; tag: string }[]): DesiredEntity[] {
+  return links.map((l) => ({
+    name: l.name,
+    kind: l.tag === 'Organization' ? 'organization' : 'person',
+  }));
+}
+
 /**
  * Build the complete desired-state blob for one item, including annotations and a
  * `contentSig` computed from the blob itself (so the same signature drives both
@@ -80,13 +88,6 @@ export async function buildDesiredState(
     item.getField(name) || undefined;
 
   const { lead, editors, contributors } = bucketCreators(item);
-  const toEntities = (
-    links: { name: string; tag: string }[],
-  ): DesiredEntity[] =>
-    links.map((l) => ({
-      name: l.name,
-      kind: l.tag === 'Organization' ? 'organization' : 'person',
-    }));
 
   const publisher = get('publisher');
   const sqlDate = item.getField('date', true, true);

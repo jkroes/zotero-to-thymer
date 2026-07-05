@@ -61,9 +61,9 @@ class Preferences {
       getZothymerPref(ZothymerPref.pageTitleFormat) ??
       PageTitleFormat.itemAuthorDateCitation;
     select.addEventListener('change', () => {
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       setZothymerPref(
         ZothymerPref.pageTitleFormat,
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
         select.value as PageTitleFormat,
       );
     });

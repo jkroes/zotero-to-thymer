@@ -3,6 +3,19 @@ import { beforeEach, describe, expect, it } from 'vite-plus/test';
 import { createZoteroItemMock, zoteroMock } from '../../../../test/utils';
 import { type CreatorBuckets, bucketCreators, creatorName } from '../entities';
 
+function person(first: string, last: string, typeID: number): Zotero.Creator {
+  return {
+    firstName: first,
+    lastName: last,
+    fieldMode: 0,
+    creatorTypeID: typeID,
+  };
+}
+
+function org(name: string, typeID: number): Zotero.Creator {
+  return { firstName: '', lastName: name, fieldMode: 1, creatorTypeID: typeID };
+}
+
 describe('creatorName', () => {
   it('joins first + last for a person (fieldMode 0)', () => {
     expect(
@@ -65,24 +78,6 @@ describe('bucketCreators', () => {
       return false;
     });
   });
-
-  function person(first: string, last: string, typeID: number): Zotero.Creator {
-    return {
-      firstName: first,
-      lastName: last,
-      fieldMode: 0,
-      creatorTypeID: typeID,
-    };
-  }
-
-  function org(name: string, typeID: number): Zotero.Creator {
-    return {
-      firstName: '',
-      lastName: name,
-      fieldMode: 1,
-      creatorTypeID: typeID,
-    };
-  }
 
   it('routes the primary creator role to lead', () => {
     const item = createZoteroItemMock({ itemTypeID: 2 });

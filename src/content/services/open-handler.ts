@@ -12,9 +12,8 @@ function resolveItem(
   );
   if (!match) return null;
 
-  const action = match[1]!;
-  const groupIDStr = match[3];
-  const key = match[4]!;
+  const [, action, , groupIDStr, key] = match;
+  if (action === undefined || key === undefined) return null;
 
   const libraryID = groupIDStr
     ? Zotero.Groups.getByGroupID(parseInt(groupIDStr, 10))?.libraryID
@@ -41,7 +40,12 @@ export class OpenHandler implements Service {
         const uri =
           typeof data === 'string'
             ? data.trim()
-            : (data as { uri?: string } | null)?.uri;
+            : typeof data === 'object' &&
+                data !== null &&
+                'uri' in data &&
+                typeof data.uri === 'string'
+              ? data.uri
+              : undefined;
         if (!uri) return [400, 'text/plain', 'Missing uri in request body'];
 
         const resolved = resolveItem(uri);
@@ -70,7 +74,10 @@ export class OpenHandler implements Service {
       }
     };
 
+    // Zotero's endpoint registry is typed to its own internal endpoint shape;
+    // registering a local class requires a boundary cast.
     Zotero.Server.Endpoints[ENDPOINT] =
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       EndpointClass as unknown as (typeof Zotero.Server.Endpoints)[string];
 
     logger.log('Registered HTTP endpoint: ' + ENDPOINT);

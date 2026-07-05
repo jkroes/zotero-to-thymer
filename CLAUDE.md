@@ -270,9 +270,12 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
      (Token retrieval during dev: eval `Zotero.Prefs.get(...)` over the DevTools TCP port — see
      "Commands" — since prefs.js only flushes on shutdown. Note web-ext dev runs DISCARD pref
      changes on exit; a normally-installed xpi persists the token.)
-- **Local lint baseline is red (2026-07-03):** `pnpm check` reports ~49 errors on a clean `main`
-  (mostly "unused eslint-disable directive" — linter version drift, spans 84 files). New code adds
-  zero; fix or pin the linter before the next release.
+- **Lint baseline is GREEN (2026-07-05):** `pnpm verify` passes clean — 0 lint errors, 0 warnings,
+  170/170 tests. The old ~49-error baseline (unused disable directives + type-aware `no-unsafe-*`
+  firing on the untyped `thymer-plugin/plugin.js`) was fixed: `thymer-plugin` is now in the lint
+  `ignorePatterns` (it's outside tsconfig, so type-aware lint can only see `any` there), dead
+  disable directives removed, non-null-assertion allowed in tests, and the remaining production
+  casts either narrowed properly or given justified, correctly-placed disables.
   1. **Tests:** the old test specs were deleted; rewrite against the Thymer modules
      (`mcp-client` / `desired-state` / `push`).
 - **`tsc` noise:** `typecheck` reports errors inside `node_modules/@voidzero-dev/*` (vite-plus `.d.ts`);
