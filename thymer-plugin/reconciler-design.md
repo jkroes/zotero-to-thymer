@@ -1,5 +1,11 @@
 # Zotero → Thymer: desired-state inbox schema + SDK reconciler design
 
+> 🪦 **HISTORICAL (2026-07-14).** The reconciler this document specifies was DELETED in the
+> single-collection cutover: everything now syncs into the user's `Notes` super-collection via
+> the Markdown Mirror, annotations are page content, and the companion plugin only appends
+> schema + handles `zotero://` links (see `README.md`). Kept for the blob-schema history and
+> the SDK findings recorded below; the code is in git history (pre-2026-07-14).
+
 > ⚠️ **SUPERSEDED IN PART (2026-06-28, session 4) — "Option A: no inbox".** The separate `Zotero Inbox`
 > collection described below was REMOVED. The Zotero side now finds the `References` record directly via
 > the MCP `search` tool (`@References."Zotero Key" === "<key>"`, strict `===`) and writes the

@@ -10,13 +10,14 @@ import {
 import { LocalizableError } from '../../errors';
 import type { DesiredState } from '../../thymer/desired-state';
 import * as fs from '../fs';
-import { REFERENCE_LABELS, ANNOTATION_LABELS } from '../mirror-schema';
+import { REFERENCE_LABELS } from '../mirror-schema';
 import type { FolderSchema } from '../mirror-schema';
 import {
+  appendAnnotations,
   deleteItemFiles,
   ensureEntityFile,
   entityKeyOf,
-  upsertAnnotationFiles,
+  renderAnnotation,
   upsertItemFile,
   waitForGuids,
 } from '../mirror-writer';
@@ -64,8 +65,9 @@ function seedFsMock(): void {
 const ROOT = '/mirror';
 
 const passthroughSchema: FolderSchema = {
-  labelOf: (id) => REFERENCE_LABELS[id] ?? ANNOTATION_LABELS[id] ?? id,
+  labelOf: (id) => REFERENCE_LABELS[id] ?? id,
   choiceLabels: () => new Set(),
+  choiceLabelsByFieldLabel: () => new Set(),
 };
 
 function makeBlob(overrides: Partial<DesiredState> = {}): DesiredState {
@@ -98,87 +100,94 @@ afterEach(() => {
 });
 
 describe('ensureEntityFile', () => {
-  it('creates a new entity file with a unique created-stamp', async () => {
+  it('creates a typed Notes file with a unique created-stamp', async () => {
+    const a = await ensureEntityFile(ROOT, {
+      name: 'Robert R. Stoll',
+      kind: 'person',
+    });
+    await ensureEntityFile(ROOT, {
+      name: 'Jane Doe',
+      kind: 'person',
+    });
+
+    expect(a).toStrictEqual({
+      relPath: 'Notes/Robert R. Stoll.md',
+      created: true,
+    });
+    const text = files.get('/mirror/Notes/Robert R. Stoll.md') ?? '';
+    expect(text).toMatch(/^---\ncreated: .+\nType: \[Person\]\n---\n$/);
+    // Distinct stamps: byte-identical new files trip the mirror's echo-dedup.
+    expect(files.get('/mirror/Notes/Jane Doe.md')).not.toBe(text);
+  });
+
+  it('tags organizations with the Organization type', async () => {
+    await ensureEntityFile(ROOT, {
+      name: 'Dover Publications',
+      kind: 'organization',
+    });
+
+    expect(files.get('/mirror/Notes/Dover Publications.md')).toContain(
+      'Type: [Organization]',
+    );
+  });
+
+  it('reuses an existing file case-insensitively and keeps its spelling', async () => {
+    files.set('/mirror/Notes/ROBERT R. STOLL.md', '---\nguid: X\n---\n');
+
     const result = await ensureEntityFile(ROOT, {
       name: 'Robert R. Stoll',
       kind: 'person',
     });
-    expect(result).toStrictEqual({
-      relPath: 'People/Robert R. Stoll.md',
-      created: true,
-    });
-    // Not zero-byte (never ingested) and not byte-identical across entities
-    // (the mirror's content-hash echo-dedup would import one per cycle and
-    // toast the rest as duplicates). `created:` is skipped by the importer
-    // and replaced by the mirror's rewrite — unique with zero residue.
-    const content = files.get('/mirror/People/Robert R. Stoll.md');
-    expect(content).toMatch(
-      /^---\ncreated: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\n---\n$/,
-    );
 
-    await ensureEntityFile(ROOT, { name: 'Ada Lovelace', kind: 'person' });
-    expect(files.get('/mirror/People/Ada Lovelace.md')).not.toBe(content);
-  });
-
-  it('reuses an existing file case-insensitively and keeps its spelling', async () => {
-    files.set('/mirror/People/ROBERT R. STOLL.md', '---\nguid: X\n---\n');
-    const result = await ensureEntityFile(ROOT, {
-      name: 'robert r. stoll',
-      kind: 'person',
-    });
     expect(result).toStrictEqual({
-      relPath: 'People/ROBERT R. STOLL.md',
+      relPath: 'Notes/ROBERT R. STOLL.md',
       created: false,
     });
   });
 
-  it('routes organizations to their folder', async () => {
+  it("reuses the user's own page as the link target without rewriting it", async () => {
+    const userPage = '---\nguid: U\n---\nThe user notes about Jane.\n';
+    files.set('/mirror/Notes/Jane Doe.md', userPage);
+
     const result = await ensureEntityFile(ROOT, {
-      name: 'Dover Publications',
-      kind: 'organization',
+      name: 'Jane Doe',
+      kind: 'person',
     });
-    expect(result.relPath).toBe('Organizations/Dover Publications.md');
+
+    expect(result).toStrictEqual({
+      relPath: 'Notes/Jane Doe.md',
+      created: false,
+    });
+    expect(files.get('/mirror/Notes/Jane Doe.md')).toBe(userPage);
   });
 });
 
 describe('waitForGuids', () => {
   it('resolves when every file has a guid', async () => {
-    vi.useFakeTimers();
-    files.set('/mirror/People/A.md', '---\n---\n');
+    files.set('/mirror/Notes/A.md', '---\nguid: AAA\n---\n');
+    files.set('/mirror/Notes/B.md', '---\nguid: BBB\n---\n');
 
-    const wait = waitForGuids(ROOT, ['People/A.md'], {
-      timeoutMs: 10_000,
-      intervalMs: 1000,
-    });
-    const settled = vi.fn();
-    void wait.then(settled);
-
-    await vi.advanceTimersByTimeAsync(2000);
-    expect(settled).not.toHaveBeenCalled();
-
-    files.set('/mirror/People/A.md', '---\nguid: G1\n---\n');
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(settled).toHaveBeenCalled();
+    await expect(
+      waitForGuids(ROOT, ['Notes/A.md', 'Notes/B.md'], {
+        timeoutMs: 50,
+        intervalMs: 5,
+      }),
+    ).resolves.toBeUndefined();
   });
 
-  it('throws a LocalizableError on timeout', async () => {
-    vi.useFakeTimers();
-    files.set('/mirror/People/A.md', '---\n---\n');
+  it('throws a LocalizableError on timeout and removes the unadopted files', async () => {
+    files.set('/mirror/Notes/A.md', '---\ncreated: x\n---\n');
 
-    const wait = waitForGuids(ROOT, ['People/A.md'], {
-      timeoutMs: 3000,
-      intervalMs: 1000,
-    });
-    const rejected = vi.fn();
-    wait.catch(rejected);
-
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(rejected).toHaveBeenCalledWith(expect.any(LocalizableError));
+    await expect(
+      waitForGuids(ROOT, ['Notes/A.md'], { timeoutMs: 20, intervalMs: 5 }),
+    ).rejects.toBeInstanceOf(LocalizableError);
+    // Echo-loop guard: the file the mirror never adopted is gone.
+    expect(files.has('/mirror/Notes/A.md')).toBe(false);
   });
 });
 
 describe('upsertItemFile', () => {
-  it('creates a new file with exactly the owned frontmatter', async () => {
+  it('creates a new file with exactly the owned frontmatter (Type appended)', async () => {
     const blob = makeBlob({
       tags: ['math', 'zz-tag'],
       relations: {
@@ -191,11 +200,11 @@ describe('upsertItemFile', () => {
     const entityPaths = new Map([
       [
         entityKeyOf({ name: 'Robert R. Stoll', kind: 'person' }),
-        'People/Robert R. Stoll.md',
+        'Notes/Robert R. Stoll.md',
       ],
       [
         entityKeyOf({ name: 'Dover Publications', kind: 'organization' }),
-        'Organizations/Dover Publications.md',
+        'Notes/Dover Publications.md',
       ],
     ]);
 
@@ -208,12 +217,13 @@ describe('upsertItemFile', () => {
     );
 
     expect(result).toStrictEqual({
-      relPath: 'References/Stoll, 1979.md',
+      relPath: 'Notes/Stoll, 1979.md',
       created: true,
       guid: null,
       clearedLabels: [],
+      appendedAnnoKeys: [],
     });
-    expect(files.get('/mirror/References/Stoll, 1979.md')).toBe(
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).toBe(
       [
         '---',
         'Zotero Key: "1:ABCD1234"',
@@ -222,9 +232,11 @@ describe('upsertItemFile', () => {
         'Year: 1979',
         'Date: "1979-10-01"',
         'Pages: "10-20"',
-        'Creators: ["[Robert R. Stoll](../People/Robert%20R.%20Stoll.md)"]',
-        'Publisher: ["[Dover Publications](../Organizations/Dover%20Publications.md)"]',
+        // Same-folder relation links: just the file name (live-verified).
+        'Creators: ["[Robert R. Stoll](Robert%20R.%20Stoll.md)"]',
+        'Publisher: ["[Dover Publications](Dover%20Publications.md)"]',
         'Tags: [math, "zz-tag"]',
+        'Type: [Reference]',
         '---',
         '',
       ].join('\n'),
@@ -234,7 +246,7 @@ describe('upsertItemFile', () => {
   it('omits partial dates (the mirror silently drops them)', async () => {
     const blob = makeBlob({ scalars: { date: '1979', year: 1979 } });
     await upsertItemFile(ROOT, blob, passthroughSchema, undefined, new Map());
-    const text = files.get('/mirror/References/Stoll, 1979.md');
+    const text = files.get('/mirror/Notes/Stoll, 1979.md');
     expect(text).not.toContain('Date:');
     expect(text).toContain('Year: 1979');
   });
@@ -247,27 +259,27 @@ describe('upsertItemFile', () => {
       'Zotero Key: "1:ABCD1234"',
       'Year: 1978',
       'My Custom Key: keep me',
-      'Collection: References',
+      'Collection: Notes',
       '---',
       '',
       "The user's precious notes.",
       '',
     ].join('\n');
-    files.set('/mirror/References/Stoll, 1979.md', existing);
+    files.set('/mirror/Notes/Stoll, 1979.md', existing);
 
     await upsertItemFile(
       ROOT,
       makeBlob({ scalars: { year: 1979 } }),
       passthroughSchema,
-      { filePath: 'References/Stoll, 1979.md' },
+      { filePath: 'Notes/Stoll, 1979.md' },
       new Map(),
     );
 
-    const text = files.get('/mirror/References/Stoll, 1979.md') ?? '';
+    const text = files.get('/mirror/Notes/Stoll, 1979.md') ?? '';
     expect(text).toContain('guid: 1R2FC749F7W3TQTDPS5YA8KEN7');
     expect(text).toContain('created: 2026-07-04T07:00:19.000Z');
     expect(text).toContain('My Custom Key: keep me');
-    expect(text).toContain('Collection: References');
+    expect(text).toContain('Collection: Notes');
     expect(text).toContain('Year: 1979');
     expect(text).not.toContain('Year: 1978');
     expect(text.endsWith("\nThe user's precious notes.\n")).toBe(true);
@@ -275,7 +287,7 @@ describe('upsertItemFile', () => {
 
   it('drops stale scalar keys and reports them for an MCP clear', async () => {
     files.set(
-      '/mirror/References/Stoll, 1979.md',
+      '/mirror/Notes/Stoll, 1979.md',
       '---\nguid: G\nZotero Key: "1:ABCD1234"\nPages: "10-20"\nYear: 1979\n---\n',
     );
 
@@ -283,20 +295,18 @@ describe('upsertItemFile', () => {
       ROOT,
       makeBlob({ scalars: { year: 1979 } }), // pages gone from Zotero
       passthroughSchema,
-      { filePath: 'References/Stoll, 1979.md' },
+      { filePath: 'Notes/Stoll, 1979.md' },
       new Map(),
     );
 
     expect(result.clearedLabels).toStrictEqual(['Pages']);
     expect(result.guid).toBe('G');
-    expect(files.get('/mirror/References/Stoll, 1979.md')).not.toContain(
-      'Pages:',
-    );
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).not.toContain('Pages:');
   });
 
   it('leaves a disabled scalar untouched instead of dropping and clearing it', async () => {
     files.set(
-      '/mirror/References/Stoll, 1979.md',
+      '/mirror/Notes/Stoll, 1979.md',
       '---\nguid: G\nZotero Key: "1:ABCD1234"\nPages: "10-20"\nYear: 1979\n---\n',
     );
 
@@ -305,41 +315,41 @@ describe('upsertItemFile', () => {
       // The field picker filters `pages` out of the blob…
       makeBlob({ scalars: { year: 1979 } }),
       passthroughSchema,
-      { filePath: 'References/Stoll, 1979.md' },
+      { filePath: 'Notes/Stoll, 1979.md' },
       new Map(),
       // …and hands the writer the disabled set so it is not owned at all.
       new Set(['pages']),
     );
 
     expect(result.clearedLabels).toStrictEqual([]);
-    expect(files.get('/mirror/References/Stoll, 1979.md')).toContain(
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).toContain(
       'Pages: "10-20"',
     );
   });
 
   it('leaves disabled relation and tag entries untouched', async () => {
     files.set(
-      '/mirror/References/Stoll, 1979.md',
-      '---\nguid: G\nZotero Key: "1:ABCD1234"\nCreators: ["[Stoll](../People/Stoll.md)"]\nTags: ["math", "stats"]\nYear: 1979\n---\n',
+      '/mirror/Notes/Stoll, 1979.md',
+      '---\nguid: G\nZotero Key: "1:ABCD1234"\nCreators: ["[Stoll](Stoll.md)"]\nTags: ["math", "stats"]\nYear: 1979\n---\n',
     );
 
     await upsertItemFile(
       ROOT,
       makeBlob({ scalars: { year: 1979 } }), // filtered: no relations, no tags
       passthroughSchema,
-      { filePath: 'References/Stoll, 1979.md' },
+      { filePath: 'Notes/Stoll, 1979.md' },
       new Map(),
       new Set(['creators', 'tags']),
     );
 
-    const text = files.get('/mirror/References/Stoll, 1979.md') ?? '';
-    expect(text).toContain('Creators: ["[Stoll](../People/Stoll.md)"]');
+    const text = files.get('/mirror/Notes/Stoll, 1979.md') ?? '';
+    expect(text).toContain('Creators: ["[Stoll](Stoll.md)"]');
     expect(text).toContain('Tags: ["math", "stats"]');
   });
 
   it('renames the file when the title changed (guid stays with the file)', async () => {
     files.set(
-      '/mirror/References/Old Title.md',
+      '/mirror/Notes/Old Title.md',
       '---\nguid: G\nZotero Key: "1:ABCD1234"\n---\nbody',
     );
 
@@ -347,21 +357,19 @@ describe('upsertItemFile', () => {
       ROOT,
       makeBlob({ title: 'New Title' }),
       passthroughSchema,
-      { filePath: 'References/Old Title.md' },
+      { filePath: 'Notes/Old Title.md' },
       new Map(),
     );
 
-    expect(result.relPath).toBe('References/New Title.md');
-    expect(files.has('/mirror/References/Old Title.md')).toBe(false);
-    const text = files.get('/mirror/References/New Title.md') ?? '';
-    expect(text).toContain('guid: G');
-    expect(text.endsWith('body')).toBe(true);
+    expect(result.relPath).toBe('Notes/New Title.md');
+    expect(files.has('/mirror/Notes/Old Title.md')).toBe(false);
+    expect(files.get('/mirror/Notes/New Title.md')).toContain('guid: G');
   });
 
-  it('suffixes the filename when another item owns the desired name', async () => {
+  it('suffixes the filename when another page owns the desired name', async () => {
     files.set(
-      '/mirror/References/Stoll, 1979.md',
-      '---\nZotero Key: "9:OTHER"\n---\n',
+      '/mirror/Notes/Stoll, 1979.md',
+      '---\nguid: OTHER\nZotero Key: "1:OTHER"\n---\n',
     );
 
     const result = await upsertItemFile(
@@ -372,16 +380,29 @@ describe('upsertItemFile', () => {
       new Map(),
     );
 
-    expect(result.relPath).toBe('References/Stoll, 1979 (2).md');
-    // The other item's file is untouched.
-    expect(files.get('/mirror/References/Stoll, 1979.md')).toBe(
-      '---\nZotero Key: "9:OTHER"\n---\n',
+    expect(result.relPath).toBe('Notes/Stoll, 1979 (2).md');
+  });
+
+  it("suffixes when the user's own note owns the desired name", async () => {
+    files.set('/mirror/Notes/Stoll, 1979.md', '---\nguid: U\n---\nuser note');
+
+    const result = await upsertItemFile(
+      ROOT,
+      makeBlob(),
+      passthroughSchema,
+      undefined,
+      new Map(),
+    );
+
+    expect(result.relPath).toBe('Notes/Stoll, 1979 (2).md');
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).toBe(
+      '---\nguid: U\n---\nuser note',
     );
   });
 
   it('relocates by Zotero-Key scan when no path is stored', async () => {
     files.set(
-      '/mirror/References/Renamed In Thymer.md',
+      '/mirror/Notes/Renamed In Thymer.md',
       '---\nguid: G\nZotero Key: "1:ABCD1234"\n---\nnotes',
     );
 
@@ -393,15 +414,10 @@ describe('upsertItemFile', () => {
       new Map(),
     );
 
-    expect(result).toStrictEqual({
-      relPath: 'References/Renamed In Thymer.md',
-      created: false,
-      guid: 'G',
-      clearedLabels: [],
-    });
-    expect(files.get('/mirror/References/Renamed In Thymer.md')).toContain(
-      'notes',
-    );
+    expect(result.relPath).toBe('Notes/Renamed In Thymer.md');
+    expect(result.created).toBe(false);
+    expect(result.guid).toBe('G');
+    expect(files.get('/mirror/Notes/Renamed In Thymer.md')).toContain('notes');
   });
 
   it('drops relation links whose entity path is unknown', async () => {
@@ -414,92 +430,255 @@ describe('upsertItemFile', () => {
       },
     });
     await upsertItemFile(ROOT, blob, passthroughSchema, undefined, new Map());
-    expect(files.get('/mirror/References/Stoll, 1979.md')).not.toContain(
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).not.toContain(
       'Creators:',
     );
   });
 });
 
-describe('upsertAnnotationFiles', () => {
+describe('upsertItemFile — Type union', () => {
+  it('adds Reference to existing user types without dropping them', async () => {
+    files.set(
+      '/mirror/Notes/Stoll, 1979.md',
+      '---\nguid: G\nZotero Key: "1:ABCD1234"\nType: [Book Notes, "To Read"]\n---\n',
+    );
+
+    await upsertItemFile(
+      ROOT,
+      makeBlob(),
+      passthroughSchema,
+      { filePath: 'Notes/Stoll, 1979.md' },
+      new Map(),
+    );
+
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).toContain(
+      'Type: [Book Notes, To Read, Reference]',
+    );
+  });
+
+  it('leaves the Type entry byte-identical when Reference is already present', async () => {
+    const typeLine = 'Type: [Reference,  "My Custom"]';
+    files.set(
+      '/mirror/Notes/Stoll, 1979.md',
+      `---\nguid: G\nZotero Key: "1:ABCD1234"\n${typeLine}\n---\n`,
+    );
+
+    await upsertItemFile(
+      ROOT,
+      makeBlob(),
+      passthroughSchema,
+      { filePath: 'Notes/Stoll, 1979.md' },
+      new Map(),
+    );
+
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).toContain(typeLine);
+  });
+
+  it('wraps a bare scalar Type value into an array with Reference', async () => {
+    files.set(
+      '/mirror/Notes/Stoll, 1979.md',
+      '---\nguid: G\nZotero Key: "1:ABCD1234"\nType: Meeting\n---\n',
+    );
+
+    await upsertItemFile(
+      ROOT,
+      makeBlob(),
+      passthroughSchema,
+      { filePath: 'Notes/Stoll, 1979.md' },
+      new Map(),
+    );
+
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).toContain(
+      'Type: [Meeting, Reference]',
+    );
+  });
+});
+
+describe('upsertItemFile — append-only annotations', () => {
   const anno = {
     annoKey: '1:ANNO1',
     type: 'highlight',
     text: 'important passage',
+    comment: 'a comment',
     page: '3',
     order: 1,
+    pdfLink: 'zotero://open-pdf/library/items/X?page=3',
   };
 
-  it('creates an annotation file with the Reference link', async () => {
-    const blob = makeBlob({ annotations: [anno] });
-    const { annoFiles, newPaths } = await upsertAnnotationFiles(
+  it('appends new annotation blocks under the Annotations heading', async () => {
+    const result = await upsertItemFile(
       ROOT,
-      blob,
+      makeBlob({ annotations: [anno] }),
       passthroughSchema,
-      'References/Stoll, 1979.md',
       undefined,
+      new Map(),
     );
 
-    expect(annoFiles).toStrictEqual({
-      '1:ANNO1': 'Annotations/important passage 1-ANNO1.md',
-    });
-    // Brand-new file, not yet ingested — the pipeline must poll it.
-    expect(newPaths).toStrictEqual([
-      'Annotations/important passage 1-ANNO1.md',
-    ]);
-    const text = files.get('/mirror/Annotations/important passage 1-ANNO1.md');
-    expect(text).toBe(
-      [
-        '---',
-        'Anno Key: "1:ANNO1"',
-        'Type: highlight',
-        'Text: important passage',
-        'Page: "3"',
-        'Order: 1',
-        'Reference: "[Stoll, 1979](../References/Stoll%2C%201979.md)"',
-        '---',
-        '',
-      ].join('\n'),
+    expect(result.appendedAnnoKeys).toStrictEqual(['1:ANNO1']);
+    const text = files.get('/mirror/Notes/Stoll, 1979.md') ?? '';
+    expect(text).toContain('## Annotations');
+    // Link on the quote line; comment tab-indented (a nested child) below.
+    expect(text).toContain(
+      '> important passage — [p. 3](zotero://open-pdf/library/items/X?page=3)\n\ta comment',
     );
   });
 
-  it('reuses the stored file and removes stale annotations', async () => {
-    files.set('/mirror/Annotations/old name 1-ANNO1.md', '---\nguid: G\n---\n');
-    files.set('/mirror/Annotations/stale 1-GONE.md', '---\nguid: H\n---\n');
-
-    const blob = makeBlob({ annotations: [anno] });
-    const { annoFiles, newPaths } = await upsertAnnotationFiles(
-      ROOT,
-      blob,
-      passthroughSchema,
-      'References/Stoll, 1979.md',
-      {
-        annoFiles: {
-          '1:ANNO1': 'Annotations/old name 1-ANNO1.md',
-          '1:GONE': 'Annotations/stale 1-GONE.md',
-        },
-      },
+  it('never re-appends an annotation recorded in syncedAnnoKeys', async () => {
+    files.set(
+      '/mirror/Notes/Stoll, 1979.md',
+      '---\nguid: G\nZotero Key: "1:ABCD1234"\n---\n\n## Annotations\n\n> important passage (user-edited)\n',
     );
 
-    expect(annoFiles).toStrictEqual({
-      '1:ANNO1': 'Annotations/old name 1-ANNO1.md',
+    const result = await upsertItemFile(
+      ROOT,
+      makeBlob({ annotations: [anno] }),
+      passthroughSchema,
+      { filePath: 'Notes/Stoll, 1979.md', syncedAnnoKeys: ['1:ANNO1'] },
+      new Map(),
+    );
+
+    expect(result.appendedAnnoKeys).toStrictEqual([]);
+    const text = files.get('/mirror/Notes/Stoll, 1979.md') ?? '';
+    // The user's edit inside the section survives; nothing was appended.
+    expect(text).toContain('> important passage (user-edited)');
+    expect(text.match(/## Annotations/g)).toHaveLength(1);
+  });
+
+  it('re-appends annotations when the file was deleted and recreated', async () => {
+    // No file on disk, but prior identity still lists the annoKey. Recreating
+    // the page must re-append it (otherwise the recovered page loses it).
+    const result = await upsertItemFile(
+      ROOT,
+      makeBlob({ annotations: [anno] }),
+      passthroughSchema,
+      { filePath: 'Notes/Stoll, 1979.md', syncedAnnoKeys: ['1:ANNO1'] },
+      new Map(),
+    );
+
+    expect(result.created).toBe(true);
+    expect(result.appendedAnnoKeys).toStrictEqual(['1:ANNO1']);
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).toContain(
+      '> important passage',
+    );
+  });
+
+  it('appends without duplicating an existing heading, preserving prose above', async () => {
+    files.set(
+      '/mirror/Notes/Stoll, 1979.md',
+      '---\nguid: G\nZotero Key: "1:ABCD1234"\n---\n\nMy reading notes.\n\n## Annotations\n\n> old block\n',
+    );
+
+    await upsertItemFile(
+      ROOT,
+      makeBlob({ annotations: [anno] }),
+      passthroughSchema,
+      { filePath: 'Notes/Stoll, 1979.md' },
+      new Map(),
+    );
+
+    const text = files.get('/mirror/Notes/Stoll, 1979.md') ?? '';
+    expect(text).toContain('My reading notes.');
+    expect(text).toContain('> old block');
+    expect(text).toContain('> important passage');
+    expect(text.match(/## Annotations/g)).toHaveLength(1);
+  });
+});
+
+describe('appendAnnotations', () => {
+  it('returns the body untouched when there is nothing new', () => {
+    const body = 'anything at all\n';
+
+    expect(appendAnnotations(body, [], undefined)).toStrictEqual({
+      body,
+      appendedAnnoKeys: [],
     });
-    // Already ingested (has a guid) — nothing to poll.
-    expect(newPaths).toStrictEqual([]);
-    expect(files.has('/mirror/Annotations/stale 1-GONE.md')).toBe(false);
-    expect(files.get('/mirror/Annotations/old name 1-ANNO1.md')).toContain(
-      'guid: G',
+  });
+
+  it('creates the heading once and appends blocks in order', () => {
+    const { body, appendedAnnoKeys } = appendAnnotations(
+      '',
+      [
+        { annoKey: '1:A', type: 'highlight', text: 'first' },
+        { annoKey: '1:B', type: 'highlight', text: 'second' },
+      ],
+      undefined,
+    );
+
+    expect(appendedAnnoKeys).toStrictEqual(['1:A', '1:B']);
+    expect(body).toBe('## Annotations\n\n> first\n\n> second\n');
+  });
+});
+
+describe('renderAnnotation', () => {
+  it('appends the link to the quote and nests the comment beneath', () => {
+    expect(
+      renderAnnotation({
+        annoKey: '1:A',
+        type: 'highlight',
+        text: 'line one\nline two',
+        comment: 'so true',
+        page: '12',
+        pdfLink: 'zotero://open-pdf/x',
+      }),
+    ).toBe('> line one\n> line two — [p. 12](zotero://open-pdf/x)\n\tso true');
+  });
+
+  it('renders a comment-less highlight as just the linked quote', () => {
+    expect(
+      renderAnnotation({
+        annoKey: '1:A',
+        type: 'highlight',
+        text: 'just a highlight',
+        page: '7',
+        pdfLink: 'zotero://open-pdf/x',
+      }),
+    ).toBe('> just a highlight — [p. 7](zotero://open-pdf/x)');
+  });
+
+  it('renders a note as plain text (no blockquote) with the comment as body', () => {
+    expect(
+      renderAnnotation({
+        annoKey: '1:N',
+        type: 'note',
+        comment: 'a standalone note',
+        page: '4',
+        pdfLink: 'zotero://open-pdf/n',
+      }),
+    ).toBe('a standalone note — [p. 4](zotero://open-pdf/n)');
+  });
+
+  it('renders a comment-bearing image as plain text', () => {
+    expect(
+      renderAnnotation({
+        annoKey: '1:I',
+        type: 'image',
+        comment: 'the figure shows X',
+        pdfLink: 'zotero://open-pdf/i',
+      }),
+    ).toBe('the figure shows X — [open in Zotero](zotero://open-pdf/i)');
+  });
+
+  it('falls back to a plain typed placeholder when there is no text or comment', () => {
+    expect(
+      renderAnnotation({
+        annoKey: '1:B',
+        type: 'image',
+        pdfLink: 'zotero://open-pdf/y',
+      }),
+    ).toBe('*(image annotation)* — [open in Zotero](zotero://open-pdf/y)');
+    expect(renderAnnotation({ annoKey: '1:C', type: 'note' })).toBe(
+      '*(note annotation)*',
     );
   });
 });
 
 describe('deleteItemFiles', () => {
-  it('removes the item file and all annotation files', async () => {
-    files.set('/mirror/References/X.md', 'x');
-    files.set('/mirror/Annotations/A.md', 'a');
+  it('removes the item file (annotations live inside it)', async () => {
+    files.set('/mirror/Notes/X.md', 'x');
 
     await deleteItemFiles(ROOT, {
-      filePath: 'References/X.md',
-      annoFiles: { '1:A': 'Annotations/A.md' },
+      filePath: 'Notes/X.md',
+      syncedAnnoKeys: ['1:A'],
     });
 
     expect(files.size).toBe(0);

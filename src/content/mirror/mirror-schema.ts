@@ -3,34 +3,40 @@
  * reader for the `_plugin.json` schema file the mirror exports into each
  * collection folder.
  *
+ * Single-collection model (2026-07-14): EVERYTHING lives in the user's
+ * `Notes` super-collection — references, people, and organizations are all
+ * Notes pages discriminated by the user's multi-value `Type` choice field
+ * (supertag-lite). One mirror folder, one `_plugin.json`.
+ *
  * Frontmatter keys are property LABELS, and labels are user-renamable, so at
  * sync time labels are resolved from the live `_plugin.json` (field ids are
  * stable across renames — same philosophy as the reconciler's `fmeta` map).
  * The constants below are the id inventory and the fallback labels; they
  * duplicate thymer-plugin/plugin.js SCHEMA deliberately (plugins can't share
  * modules with the xpi).
+ *
+ * The `Type` field is the ONE field we don't own: it predates the sync and
+ * its id is workspace-specific, so it is addressed by LABEL (`Type`), not id.
+ * Renaming it in Thymer breaks the sync's type-tagging — documented caveat.
  */
 
 import { join, readText } from './fs';
 
-export const REFERENCES_COLLECTION_NAME = 'References';
+export const NOTES_COLLECTION_NAME = 'Notes';
 
-/** Mirror folder name per entity kind (folder name = collection name). */
-export const ENTITY_FOLDERS = {
-  person: 'People',
-  organization: 'Organizations',
+/** The user's supertag field (addressed by label — see module docblock). */
+export const TYPE_FIELD_LABEL = 'Type';
+
+/** `Type` choice option per synced page kind. */
+export const TYPE_LABELS = {
+  reference: 'Reference',
+  person: 'Person',
+  organization: 'Organization',
 } as const;
 
-export const ANNOTATIONS_FOLDER = 'Annotations';
+export const MIRROR_FOLDERS = [NOTES_COLLECTION_NAME] as const;
 
-export const MIRROR_FOLDERS = [
-  REFERENCES_COLLECTION_NAME,
-  ENTITY_FOLDERS.person,
-  ENTITY_FOLDERS.organization,
-  ANNOTATIONS_FOLDER,
-] as const;
-
-/** References fields: blob scalar/relation id → default property label. */
+/** Synced fields: blob scalar/relation id → default property label. */
 export const REFERENCE_LABELS: Record<string, string> = {
   zoteroKey: 'Zotero Key',
   itemType: 'Item Type',
@@ -64,8 +70,6 @@ export const REFERENCE_LABELS: Record<string, string> = {
   publisher: 'Publisher',
   collections: 'Collections',
   tags: 'Tags',
-  // `syncBlob` ("Sync Data") is deliberately absent: the mirror transport
-  // never writes it, and an existing value passes through merge untouched.
 };
 
 /**
@@ -102,7 +106,7 @@ export const SCALAR_FIELD_IDS = [
   'dateModified',
 ] as const;
 
-/** Blob relation keys (DesiredState.relations) → References field ids. */
+/** Blob relation keys (DesiredState.relations) → field ids. */
 export const RELATION_FIELD_IDS = {
   Creators: 'creators',
   Editors: 'editors',
@@ -110,7 +114,7 @@ export const RELATION_FIELD_IDS = {
   Publisher: 'publisher',
 } as const;
 
-/** References choice fields that may need option provisioning over MCP. */
+/** Our choice fields that may need option provisioning over MCP. */
 export const CHOICE_FIELD_IDS = [
   'itemType',
   'container',
@@ -118,20 +122,7 @@ export const CHOICE_FIELD_IDS = [
   'collections',
 ] as const;
 
-/** Annotations fields: DesiredAnnotation key → default property label. */
-export const ANNOTATION_LABELS: Record<string, string> = {
-  annoKey: 'Anno Key',
-  type: 'Type',
-  text: 'Text',
-  comment: 'Comment',
-  color: 'Color',
-  page: 'Page',
-  order: 'Order',
-  pdfLink: 'PDF Link',
-  reference: 'Reference',
-};
-
-/** Datetime-typed References fields (mirror drops partial dates — spike S1). */
+/** Datetime-typed fields (mirror drops partial dates — spike S1). */
 export const DATETIME_FIELD_IDS = new Set([
   'date',
   'dateAdded',
@@ -150,6 +141,11 @@ export type FolderSchema = {
   labelOf(fieldId: string): string;
   /** Lowercased labels of a choice field's existing options. */
   choiceLabels(fieldId: string): Set<string>;
+  /**
+   * Like `choiceLabels`, but the field is found by its LABEL — for the
+   * user-owned `Type` field, whose id is workspace-specific.
+   */
+  choiceLabelsByFieldLabel(fieldLabel: string): Set<string>;
 };
 
 /**
@@ -181,11 +177,22 @@ export async function loadFolderSchema(
       return fields.get(fieldId)?.label ?? defaults[fieldId] ?? fieldId;
     },
     choiceLabels(fieldId: string): Set<string> {
-      const labels = new Set<string>();
-      for (const choice of fields.get(fieldId)?.choices ?? []) {
-        if (choice.active !== false) labels.add(choice.label.toLowerCase());
+      return optionLabels(fields.get(fieldId));
+    },
+    choiceLabelsByFieldLabel(fieldLabel: string): Set<string> {
+      const wanted = fieldLabel.toLowerCase();
+      for (const field of fields.values()) {
+        if (field.label.toLowerCase() === wanted) return optionLabels(field);
       }
-      return labels;
+      return new Set();
     },
   };
+}
+
+function optionLabels(field: PluginJsonField | undefined): Set<string> {
+  const labels = new Set<string>();
+  for (const choice of field?.choices ?? []) {
+    if (choice.active !== false) labels.add(choice.label.toLowerCase());
+  }
+  return labels;
 }

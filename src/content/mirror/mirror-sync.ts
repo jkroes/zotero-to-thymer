@@ -5,20 +5,24 @@
  *
  *   P1 provision choice options (once per job, usually zero MCP calls)
  *   P2 entity files for the whole job, ONE guid poll over the new ones
- *   P3 item files (entity links now resolve)
- *   P4 ONE guid poll over ALL not-yet-ingested item files
- *   P5 annotation files (their Reference links now resolve) + MCP scalar
- *      clears, then ONE guid poll over new annotation files
- *   P6 persist identity per item — LAST, so a failed job re-runs cleanly
- *      (file upserts are idempotent; relocation-by-key self-heals)
+ *   P3 item files (entity links now resolve; annotation blocks are appended
+ *      to each item's body in the same write — annotations are page content,
+ *      not records)
+ *   P4 ONE guid poll over ALL not-yet-ingested item files + MCP scalar clears
+ *   P5 persist identity per item — LAST, so a failed job re-runs cleanly
+ *      (file upserts are idempotent; relocation-by-key self-heals; an
+ *      already-appended annotation is skipped by its recorded annoKey)
  *
  * Every file this pipeline creates is polled until the mirror's `guid:`
  * rewrite proves ingestion; on timeout waitForGuids REMOVES the unadopted
  * files. A file the mirror never adopts in place would otherwise be
  * re-ingested as a new record every sync cycle (the 2026-07-04 runaway).
  *
- * Wall-clock cost: at most three poll cycles (~6–30 s) per job, independent
- * of item count, and zero when nothing new was created.
+ * Failure caveat (append-only annotations): identity persists LAST, so a job
+ * that dies between the item-file write and P5 re-appends the same
+ * annotation blocks on the retry (duplicate blocks in the body — harmless,
+ * user-deletable). The alternative (persist first) would silently LOSE
+ * annotations on failure; duplicates are the better failure mode.
  */
 
 import { saveThymerSyncData, saveThymerTag } from '../data/item-data';
@@ -30,9 +34,7 @@ import { logger } from '../utils';
 
 import { provisionChoices } from './choice-provisioner';
 import {
-  ANNOTATIONS_FOLDER,
-  ANNOTATION_LABELS,
-  REFERENCES_COLLECTION_NAME,
+  NOTES_COLLECTION_NAME,
   REFERENCE_LABELS,
   loadFolderSchema,
 } from './mirror-schema';
@@ -41,7 +43,6 @@ import {
   ensureEntityFile,
   entityKeyOf,
   readGuid,
-  upsertAnnotationFiles,
   upsertItemFile,
   waitForGuids,
   type UpsertItemResult,
@@ -66,7 +67,7 @@ export async function runMirrorSync(
 ): Promise<void> {
   if (!plans.length) return;
 
-  // P1 — choice options.
+  // P1 — choice options (incl. the Type options for entity/reference pages).
   await provisionChoices(
     client,
     root,
@@ -90,10 +91,10 @@ export async function runMirrorSync(
     await waitForGuids(root, createdEntityPaths);
   }
 
-  // P3 — item files.
-  const referencesSchema = await loadFolderSchema(
+  // P3 — item files (annotation blocks appended in the same write).
+  const notesSchema = await loadFolderSchema(
     root,
-    REFERENCES_COLLECTION_NAME,
+    NOTES_COLLECTION_NAME,
     REFERENCE_LABELS,
   );
   const upserts: { plan: ItemPlan; upsert: UpsertItemResult | null }[] = [];
@@ -108,7 +109,7 @@ export async function runMirrorSync(
           upsert: await upsertItemFile(
             root,
             plan.blob,
-            referencesSchema,
+            notesSchema,
             plan.prior,
             entityPaths,
             disabledFields,
@@ -120,10 +121,9 @@ export async function runMirrorSync(
     }
   }
 
-  // P4 — one poll over every not-yet-ingested item file. Annotation
-  // Reference links need the item RECORDS to exist; polling ALL new files
-  // (not just annotated ones) also makes a mirror that refuses a file
-  // surface as an error + cleanup instead of a duplicate-record echo loop.
+  // P4 — one poll over every not-yet-ingested item file (a mirror that
+  // refuses a file surfaces as an error + cleanup instead of a
+  // duplicate-record echo loop), then MCP scalar clears.
   const pendingItemPaths = upserts.flatMap(({ upsert }) =>
     upsert && upsert.guid === null ? [upsert.relPath] : [],
   );
@@ -132,24 +132,15 @@ export async function runMirrorSync(
     await waitForGuids(root, pendingItemPaths);
   }
 
-  // P5 — annotation files (their Reference links now resolve) + MCP scalar
-  // clears, then ONE poll over new annotation files (same echo-loop guard).
-  const annotationsSchema = await loadFolderSchema(
-    root,
-    ANNOTATIONS_FOLDER,
-    ANNOTATION_LABELS,
-  );
   const results: {
     plan: ItemPlan;
     upsert: UpsertItemResult | null;
     guid?: string;
-    annoFiles?: Record<string, string>;
   }[] = [];
-  const pendingAnnoPaths: string[] = [];
   for (const { plan, upsert } of upserts) {
     try {
       if (!upsert) {
-        // Tombstone: files removed; nothing to persist on a deleted item.
+        // Tombstone: file removed; nothing to persist on a deleted item.
         results.push({ plan, upsert: null });
         continue;
       }
@@ -166,47 +157,31 @@ export async function runMirrorSync(
         await client.updateRecordProperty(guid, label, '');
       }
 
-      // Annotations disabled → don't touch annotation files at all. Running
-      // the upsert with the blob's (filtered-to-empty) annotation list would
-      // DELETE the existing files, trashing their records — the field picker
-      // must leave already-synced data alone. Carrying `prior.annoFiles`
-      // forward preserves the mapping for when the field is re-enabled.
-      const { annoFiles, newPaths } = disabledFields.has('annotations')
-        ? { annoFiles: plan.prior?.annoFiles ?? {}, newPaths: [] }
-        : await upsertAnnotationFiles(
-            root,
-            plan.blob,
-            annotationsSchema,
-            upsert.relPath,
-            plan.prior,
-          );
-      pendingAnnoPaths.push(...newPaths);
-      results.push({ plan, upsert, guid, annoFiles });
+      results.push({ plan, upsert, guid });
     } catch (error) {
       throw new ItemSyncError(error, plan.item);
     }
   }
-  if (pendingAnnoPaths.length) {
-    logger.debug(
-      `Waiting for ${pendingAnnoPaths.length} new annotation file(s)`,
-    );
-    await waitForGuids(root, pendingAnnoPaths);
-  }
 
-  // P6 — persist identity per item — LAST, so a failed job re-runs cleanly.
-  for (const { plan, upsert, guid, annoFiles } of results) {
+  // P5 — persist identity per item — LAST, so a failed job re-runs cleanly.
+  for (const { plan, upsert, guid } of results) {
     try {
       if (!upsert) {
         onItemSynced?.(plan.item);
         continue;
       }
+      const syncedAnnoKeys = [
+        ...new Set([
+          ...(plan.prior?.syncedAnnoKeys ?? []),
+          ...upsert.appendedAnnoKeys,
+        ]),
+      ];
       await saveThymerSyncData(plan.item, {
         zoteroKey: plan.blob.zoteroKey,
         contentSig: plan.blob.contentSig,
         referenceGuid: guid,
         filePath: upsert.relPath,
-        annoFiles:
-          annoFiles && Object.keys(annoFiles).length ? annoFiles : undefined,
+        syncedAnnoKeys: syncedAnnoKeys.length ? syncedAnnoKeys : undefined,
       });
       await saveThymerTag(plan.item);
       onItemSynced?.(plan.item);

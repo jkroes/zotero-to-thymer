@@ -6,7 +6,7 @@
  * Mapping:
  *   - highlight / underline -> type "highlight"; text = selected text, comment = note.
  *   - note / text           -> type "note"; comment = the typed content.
- *   - image                 -> type "image"; comment = the note, if any.
+ *   - image                 -> type "image"; comment = the note, if any (no text).
  *   - ink                   -> skipped (no text content).
  *
  * `order` is the 1-based reading-order rank (annotationSortIndex); `pdfLink` is a
@@ -62,7 +62,9 @@ function buildAnnotation(
       return { ...base, type: 'note', comment };
     }
     case 'image':
-      return { ...base, type: 'image', text: 'Image annotation', comment };
+      // No text content; the comment (if any) becomes the block body, else
+      // the renderer emits an "*(image annotation)*" placeholder.
+      return { ...base, type: 'image', comment };
     default:
       return null; // 'ink' and any future text-less type
   }

@@ -4,7 +4,7 @@ import { isObject } from '../utils';
  * Zotero-side storage of the Thymer sync state for an item.
  *
  * A child link-attachment titled "Thymer" (visible under the item) carries a
- * durable JSON blob so re-syncs can find and update the same `References` record.
+ * durable JSON blob so re-syncs can find and update the same Notes page.
  * In the mirror-transport architecture the primary identity is the item's
  * FILE PATH inside the Markdown Mirror (re-found by a `Zotero Key`
  * frontmatter scan when the cache is absent or stale); the record GUID is
@@ -19,7 +19,7 @@ export const THYMER_TAG_NAME = 'zothymer';
 
 export type ThymerSyncData = {
   /**
-   * GUID of the item's record in the Thymer `References` collection.
+   * GUID of the item's page in the Thymer `Notes` collection.
    * Optional: a mirror-transport sync may persist before the mirror has
    * ingested the file (the guid is harvested on a later sync). The
    * import-panel `/mark-synced` path always supplies it.
@@ -35,8 +35,11 @@ export type ThymerSyncData = {
   contentSig?: string;
   /** Path of the item's mirror file, relative to the mirror root. */
   filePath?: string;
-  /** annoKey → mirror-relative path of each synced annotation file. */
-  annoFiles?: Record<string, string>;
+  /**
+   * annoKeys whose annotation blocks were appended to the page body
+   * (append-only model: an annoKey listed here is never appended again).
+   */
+  syncedAnnoKeys?: string[];
 };
 
 /** A `thymer:` deep link is cosmetic; the durable data is the attachment note. */
@@ -78,14 +81,15 @@ function readSyncData(attachment: Zotero.Item): ThymerSyncData | undefined {
       typeof parsed.filePath === 'string' && parsed.filePath
         ? parsed.filePath
         : undefined,
-    annoFiles: isStringRecord(parsed.annoFiles) ? parsed.annoFiles : undefined,
+    syncedAnnoKeys: isStringArray(parsed.syncedAnnoKeys)
+      ? parsed.syncedAnnoKeys
+      : undefined,
   };
 }
 
-function isStringRecord(value: unknown): value is Record<string, string> {
+function isStringArray(value: unknown): value is string[] {
   return (
-    isObject(value) &&
-    Object.values(value).every((entry) => typeof entry === 'string')
+    Array.isArray(value) && value.every((entry) => typeof entry === 'string')
   );
 }
 
@@ -116,7 +120,7 @@ export function getThymerSyncData(
 function buildAttachmentNote(data: ThymerSyncData): string {
   const note = `
 <h2 style="background-color: #ff666680;">Do not modify or delete!</h2>
-<p>This link attachment lets Zotero update the Thymer Reference record for this item.</p>
+<p>This link attachment lets Zotero update the Thymer page for this item.</p>
 <p>Last synced: ${new Date().toLocaleString()}</p>
 `;
   return `${note}<pre id="${THYMER_SYNC_DATA_ID}">${JSON.stringify(data)}</pre>`;

@@ -4,13 +4,23 @@ Live-sync **Zotero** library items into **Thymer**. Two halves, **both in this r
 
 - **`src/`** — a **Zotero 7 plugin** (the writer). Fork lineage: [Notero](https://github.com/dvanoni/notero)
   → `zotero-to-tana` (Zotana) → this repo (Zothymer). User-facing overview/setup in `README.md`.
-- **`thymer-plugin/`** — a global Thymer plugin: self-provisions the collections on load and hosts
-  the `zotero://` link bridge. Its `Sync Data` reconcile loop is **inert** under the mirror
-  transport (nothing writes `Sync Data` anymore). (Consolidated here 2026-06-28; see
+- **`thymer-plugin/`** — a global Thymer plugin: appends the Reference fields to the user's
+  `Notes` collection, seeds the `Type` options, and hosts the `zotero://` link bridge. (The old
+  4-collection provisioning + `Sync Data` reconciler was deleted 2026-07-14; see
   `thymer-plugin/README.md`.) The **"Zotero: Library" import panel** (and its Zotero-side support:
   `library-handler.ts` HTTP API, `token-registrar.ts`, the `libraryToken` pref) lives on the
   **`dev` branch only** — removed from `main` 2026-07-04.
 
+> **Status (2026-07-14): single-collection cutover (v0.3).** Everything syncs into the user's
+> `Notes` super-collection as typed pages (multi-value `Type` choice field: Reference / Person /
+> Organization; the field is user-owned and addressed by LABEL). Annotations are no longer
+> records: they are APPEND-ONLY markdown blocks in the Reference page body under
+> `## Annotations`, gated by `syncedAnnoKeys` in the item's stored identity. Live-verified that
+> day on the real Notes mirror folder: same-folder relation links (`[Name](Name.md)`) resolve,
+> `Type: [Reference]` YAML arrays set the multi-value choice, and headings/quotes/`zotero://`
+> links in the body round-trip into real page content. Unit-verified (205 tests); the full
+> e2e (xpi + companion plugin against the live apps) is the remaining gate.
+>
 > **Status (2026-07-04, afternoon):** the Zotero side is on the **mirror transport (v0.2 cutover)** —
 > unit-tested (`pnpm verify`) AND **live-verified end-to-end** against a fresh (rewound) workspace:
 > entity/item/annotation files ingest in place, 60/60 annotations, relations + choice provisioning,
@@ -44,8 +54,9 @@ the mirror silently drops unknown choice values), and **single-value scalar clea
 (`update_record_property` with `''` — the mirror cannot clear a property at all).
 
 The sync pipeline is phased (`src/content/mirror/mirror-sync.ts`), because a relation link only
-resolves if the target RECORD exists at parse time: provision choices → entity files (People/
-Organizations, batched per job) → one guid poll → item files → one guid poll → annotation files →
+resolves if the target RECORD exists at parse time: provision choices (incl. `Type` options) →
+entity files (typed Person/Organization pages in `Notes/`, batched per job) → one guid poll →
+item files (annotation blocks appended in the same write) → one guid poll + MCP scalar clears →
 persist identity. All mirror semantics grounding this design are live-verified in
 **`docs/mirror-transport-spike.md`** (T1–T6 + addenda S1–S5): read it before touching the writer.
 Key rules baked in: fresh read before every rewrite (the mirror rewrites ingested files with
@@ -117,18 +128,20 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
 
 ## Key design decisions
 
-- **All-SDK-writes split (the dumb pipe).** MCP cannot write a `many:true` relation on an existing record
-  without corrupting it, so **every** structured write (scalars + multi-value relations + entities +
-  annotations) is done by the reconciler via the Thymer SDK. The Zotero side writes only single-value text
-  (`Sync Data`, `Zotero Key`), so `create_record` / `update_record_property` are always safe.
-- **"Option A": no inbox.** The Zotero side addresses the `References` record **directly** by `Zotero Key`
-  and writes the blob onto its transient `Sync Data` field — no separate inbox collection / status
-  lifecycle. The reconciler self-provisions schema, so the Zotero side does zero bootstrap.
-- **Identity = `referenceGuid`, cached Zotero-side, re-found by strict key search.** The durable upsert key
-  is the Reference record GUID, stored in the item's "Thymer" link-attachment. When absent (first sync /
-  store lost), re-find by `@References."Zotero Key" === "<key>"`. **`===` is strict** (full-value match);
-  `=` is fuzzy — using fuzzy would risk updating the wrong record (memory:
-  `thymer-mcp-search-strict-equality`).
+- **Single super-collection (supertag-lite).** Everything is a page in the user's `Notes`
+  collection, discriminated by the user-owned multi-value `Type` choice field. The writer only
+  ever ADDS our type label (union — user-added types survive); the field is addressed by LABEL
+  because its id is workspace-specific (rename caveat). Entity dedup scans the whole Notes
+  folder by file stem, so a user's existing same-named page is reused as the link target.
+- **Annotations are page content, append-only.** One markdown block per annotation under
+  `## Annotations`; identity is `syncedAnnoKeys` in the Zotero-side store, so a key is appended
+  at most once. The sync never rewrites or removes body lines — user edits inside the section
+  survive, and annotations edited/deleted in Zotero go stale in Thymer by design. Failure mode:
+  a crash between item write and identity persist duplicates blocks on retry (chosen over the
+  persist-first alternative, which would silently LOSE annotations).
+- **Identity = mirror file path + `Zotero Key` frontmatter.** The stored `filePath` (verified by
+  the file's `Zotero Key`) is the durable upsert key; a folder scan re-finds renamed/adopted
+  files. The record GUID is harvested from the mirror's rewrite and kept for MCP scalar clears.
 - **Change-detection stays Zotero-side.** `contentSig` (over synced source fields, sans volatile `year`) is
   computed in the blob and gates the push (`sync-regular-item`); the reconciler value-diffs as a backstop.
   There is **no `Content Sig` field** in Thymer.

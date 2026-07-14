@@ -52,7 +52,7 @@ async function prepareSyncJob(window: Window): Promise<SyncJobParams> {
   for (const folder of MIRROR_FOLDERS) {
     if (!(await exists(join(mirrorRoot, folder, '_plugin.json')))) {
       throw new LocalizableError(
-        `"${mirrorRoot}" doesn't look like an active Thymer mirror (missing ${folder}/_plugin.json). Check the path in Zothymer preferences, that the Markdown Mirror is enabled in Thymer, and that the "Zotero Sync" plugin has provisioned the collections.`,
+        `"${mirrorRoot}" doesn't look like an active Thymer mirror (missing ${folder}/_plugin.json). Check the path in Zothymer preferences, that the Markdown Mirror is enabled in Thymer, and that the "Zotero Sync" plugin has added the Reference fields to the Notes collection.`,
         'zothymer-error-mirror-root-invalid',
         { l10nArgs: { folder } },
       );

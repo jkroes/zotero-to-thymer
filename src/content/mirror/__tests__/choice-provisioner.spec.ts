@@ -40,6 +40,17 @@ const DISK_SCHEMA = JSON.stringify({
     },
     { id: 'container', label: 'Container', type: 'choice', choices: [] },
     { id: 'collections', label: 'Collections', type: 'choice', choices: [] },
+    {
+      // The user's supertag field: workspace-specific id, matched by label.
+      id: 'F69T586T5W28N2Q',
+      label: 'Type',
+      type: 'choice',
+      choices: [
+        { id: 'reference', label: 'Reference', active: true },
+        { id: 'person', label: 'Person', active: true },
+        { id: 'organization', label: 'Organization', active: true },
+      ],
+    },
   ],
 });
 
@@ -61,11 +72,59 @@ describe('provisionChoices', () => {
     expect(client.updateCollectionConfigJson).not.toHaveBeenCalled();
   });
 
-  it('makes no calls at all when nothing demands choices', async () => {
+  it('makes no calls at all for tombstone-only jobs', async () => {
+    await provisionChoices(client, '/root', [
+      makeBlob({ scalars: {}, tags: [], deleted: true }),
+    ]);
+    expect(vi.mocked(readText)).not.toHaveBeenCalled();
+  });
+
+  it('every live blob demands the Reference type option (covered on disk → no MCP)', async () => {
     await provisionChoices(client, '/root', [
       makeBlob({ scalars: {}, tags: [] }),
     ]);
-    expect(vi.mocked(readText)).not.toHaveBeenCalled();
+    expect(vi.mocked(readText)).toHaveBeenCalled();
+    // oxlint-disable-next-line typescript/unbound-method
+    expect(client.findCollectionGuid).not.toHaveBeenCalled();
+  });
+
+  it('seeds missing Type options by field LABEL (workspace-specific id)', async () => {
+    // Disk schema lacks the entity type options → MCP path.
+    vi.mocked(readText).mockResolvedValue(
+      JSON.stringify({
+        fields: [
+          { id: 'F69T586T5W28N2Q', label: 'Type', type: 'choice', choices: [] },
+        ],
+      }),
+    );
+    client.findCollectionGuid.mockResolvedValue('COLGUID');
+    client.getCollectionConfigJson.mockResolvedValue({
+      fields: [
+        { id: 'F69T586T5W28N2Q', label: 'Type', choices: [] },
+        { id: 'itemType', label: 'Item Type', choices: [] },
+      ],
+    });
+
+    await provisionChoices(client, '/root', [
+      makeBlob({
+        scalars: {},
+        relations: {
+          Creators: [{ name: 'Ada', kind: 'person' }],
+          Editors: [],
+          Contributors: [],
+          Publisher: [{ name: 'Acme', kind: 'organization' }],
+        },
+      }),
+    ]);
+
+    const [, config] = client.updateCollectionConfigJson.mock.calls[0] as [
+      string,
+      { fields: { label?: string; choices?: { label: string }[] }[] },
+    ];
+    const typeField = config.fields.find((field) => field.label === 'Type');
+    expect(
+      typeField?.choices?.map((choice) => choice.label).toSorted(),
+    ).toStrictEqual(['Organization', 'Person', 'Reference']);
   });
 
   it('splices missing options with kebab ids and writes the config back', async () => {

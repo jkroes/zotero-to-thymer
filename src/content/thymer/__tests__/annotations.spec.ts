@@ -119,10 +119,9 @@ describe('readItemAnnotations', () => {
     const result = readItemAnnotations(item);
 
     expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      type: 'image',
-      text: 'Image annotation',
-    });
+    expect(result[0]).toMatchObject({ type: 'image' });
+    // No fake text: the renderer emits a placeholder (or uses the comment).
+    expect(result[0]!.text).toBeUndefined();
   });
 
   it('skips ink annotations (no text content)', () => {

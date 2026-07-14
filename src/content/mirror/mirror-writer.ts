@@ -1,19 +1,30 @@
 /**
  * Renders DesiredState into Markdown Mirror files — the push transport.
  *
- * Ground rules (all live-verified, docs/mirror-transport-spike.md):
+ * Single-collection model: every synced page (references AND people/
+ * organizations) is a file in the `Notes/` mirror folder, discriminated by
+ * the user's multi-value `Type` choice field. Annotations are NOT pages —
+ * they are appended (append-only) to the Reference file's markdown body
+ * under a `## Annotations` heading.
+ *
+ * Ground rules (live-verified, docs/mirror-transport-spike.md + the
+ * 2026-07-14 Notes-folder session):
  * - Files are read fresh immediately before every rewrite, and everything we
  *   don't own (mirror-added `guid:`/`created:` keys, user keys, the page
- *   body) passes through verbatim. The body is the user's notes — sacred.
+ *   body) passes through verbatim. The body is the user's notes — sacred;
+ *   the sync only ever APPENDS annotation blocks, never rewrites body lines.
+ * - Same-folder relation links (`[Name](Name.md)`, percent-encoded) resolve
+ *   correctly (live-verified 2026-07-14 on the Notes folder).
  * - Relation links resolve only if the target RECORD already exists when the
  *   file is parsed; dangling links are dropped silently and never resolved
  *   retroactively. Hence entity files first, then a guid poll, then items.
  * - Renaming a file renames the record in place (guid stable).
  * - Deleting a file trashes the record (recoverable).
- * - A zero-byte file is never ingested: new entity files get an empty
- *   frontmatter block.
+ * - A zero-byte file is never ingested: new entity files get frontmatter.
  * - Datetime fields accept only full YYYY-MM-DD; partial dates are dropped
  *   by the mirror (and would silently diverge), so we never emit them.
+ * - The `Type` field is user-owned and multi-value: the writer only ever
+ *   ADDS our type label to whatever values are already there.
  */
 
 import { LocalizableError } from '../errors';
@@ -44,24 +55,27 @@ import {
   writeText,
 } from './fs';
 import {
-  ANNOTATIONS_FOLDER,
   DATETIME_FIELD_IDS,
-  ENTITY_FOLDERS,
-  REFERENCES_COLLECTION_NAME,
+  NOTES_COLLECTION_NAME,
   RELATION_FIELD_IDS,
   SCALAR_FIELD_IDS,
+  TYPE_FIELD_LABEL,
+  TYPE_LABELS,
   type FolderSchema,
 } from './mirror-schema';
 
 /** The slice of the item's stored sync state the writer needs. */
 export type MirrorPrior = {
   filePath?: string;
-  annoFiles?: Record<string, string>;
+  /** annoKeys whose blocks were already appended to the page body. */
+  syncedAnnoKeys?: string[];
 };
 
 const FULL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Entity-name normalization for dedup — same as the reconciler's norm(). */
+export const ANNOTATIONS_HEADING = '## Annotations';
+
+/** Entity-name normalization for dedup. */
 export function normName(name: string): string {
   return name.trim().toLowerCase();
 }
@@ -72,32 +86,32 @@ export function entityKeyOf(entity: DesiredEntity): string {
 
 /**
  * Content of a brand-new entity file (zero-byte files are never ingested).
- * NOT empty frontmatter: the mirror's echo-dedup hashes file CONTENT, so a
- * batch of byte-identical new files imports one-per-cycle, flagging the rest
- * as "duplicates of existing records" (a scary user-facing toast with a
- * "Disable Mirror" button; live 2026-07-04). A unique `created:` stamp per
- * file makes the whole batch ingest in one cycle AND leaves no residue:
- * `created` is on the importer's skip-list (never becomes record data, not
- * even a hidden `$mirror:` key-value like un-owned keys do), and the
- * mirror's rewrite replaces it with the real creation time (live-verified
- * same day). The ms offset keeps same-millisecond writes unique.
+ * The unique `created:` stamp defeats the mirror's content-hash echo-dedup
+ * (byte-identical new files import one-per-cycle with a scary "duplicate
+ * files" toast — live 2026-07-04) and leaves no residue: `created` is on the
+ * importer's skip-list and the mirror's rewrite replaces it. The `Type`
+ * array tags the page Person/Organization (the option must already be
+ * provisioned — the mirror silently drops unknown choice values).
  */
 let entityFileSeq = 0;
-function newEntityFileContent(): string {
+function newEntityFileContent(entity: DesiredEntity): string {
   const stamp = new Date(Date.now() + entityFileSeq++).toISOString();
-  return `---\ncreated: ${stamp}\n---\n`;
+  const typeLabel = TYPE_LABELS[entity.kind];
+  return `---\ncreated: ${stamp}\n${TYPE_FIELD_LABEL}: ${yamlArray([typeLabel])}\n---\n`;
 }
 
 /**
- * Make sure a People/Organizations file exists for the entity; dedup is by
- * normalized file stem. Returns the ACTUAL on-disk relative path (existing
- * spellings win), which is what relation links must point at.
+ * Make sure a Notes file exists for the entity; dedup is by normalized file
+ * stem across the WHOLE Notes folder — an existing user page with the same
+ * name is reused as the link target verbatim (never rewritten; linking to
+ * the user's own "Jane Doe" note is the supertag-lite-correct outcome).
+ * Returns the ACTUAL on-disk relative path (existing spellings win).
  */
 export async function ensureEntityFile(
   root: string,
   entity: DesiredEntity,
 ): Promise<{ relPath: string; created: boolean }> {
-  const folder = ENTITY_FOLDERS[entity.kind];
+  const folder = NOTES_COLLECTION_NAME;
   const wanted = normName(sanitizeFileStem(entity.name));
 
   for (const fileName of await childFileNames(join(root, folder))) {
@@ -107,7 +121,7 @@ export async function ensureEntityFile(
   }
 
   const fileName = `${sanitizeFileStem(entity.name)}.md`;
-  await writeText(join(root, folder, fileName), newEntityFileContent());
+  await writeText(join(root, folder, fileName), newEntityFileContent(entity));
   return { relPath: `${folder}/${fileName}`, created: true };
 }
 
@@ -169,13 +183,15 @@ export type UpsertItemResult = {
    * pipeline clears these over MCP (single-value writes are safe there).
    */
   clearedLabels: string[];
+  /** annoKeys whose blocks this upsert appended to the body. */
+  appendedAnnoKeys: string[];
 };
 
 /**
- * Create or update the item's References file. Location precedence: the
- * stored path (verified by `Zotero Key`), then a frontmatter scan of the
- * folder (covers first-time adoption of records created by the old blob
- * path or the import panel, and Thymer-side renames), then a new file.
+ * Create or update the item's Notes file. Location precedence: the stored
+ * path (verified by `Zotero Key`), then a frontmatter scan of the folder
+ * (covers first-time adoption of records created by the old transports and
+ * Thymer-side renames), then a new file.
  */
 export async function upsertItemFile(
   root: string,
@@ -195,6 +211,7 @@ export async function upsertItemFile(
   const fullPath = join(root, desired);
   const doc = parseDoc(await readText(fullPath));
   const owned = buildOwnedItemKeys(blob, schema, entityPaths, disabledFields);
+  setTypeUnion(owned, doc);
 
   const scalarLabels = new Set(
     SCALAR_FIELD_IDS.map((id) => schema.labelOf(id)),
@@ -207,20 +224,30 @@ export async function upsertItemFile(
     );
 
   const merged = mergeOwned(doc, owned);
-  await writeText(fullPath, serializeDoc(merged));
+  // On a NEW/recreated file the body is empty, so the append-gate starts
+  // empty too — otherwise deleting the page and re-syncing would recreate it
+  // with every annotation gated out (annotation loss on recovery).
+  const priorAnnoKeys = located ? prior?.syncedAnnoKeys : undefined;
+  const { body, appendedAnnoKeys } = appendAnnotations(
+    merged.body,
+    blob.annotations,
+    priorAnnoKeys,
+  );
+  await writeText(fullPath, serializeDoc({ entries: merged.entries, body }));
 
   return {
     relPath: desired,
     created: !located,
     guid: entryValue(doc, 'guid'),
     clearedLabels,
+    appendedAnnoKeys,
   };
 }
 
 const EMPTY_SET: ReadonlySet<string> = new Set();
 
 /**
- * Owned frontmatter (label → rendered value) for a References file.
+ * Owned frontmatter (label → rendered value) for an item's Notes file.
  *
  * Field-picker-disabled ids are not owned AT ALL (as opposed to owned with
  * `undefined`): an existing frontmatter entry passes through merge verbatim
@@ -262,7 +289,9 @@ function buildOwnedItemKeys(
       blob.relations[relationKey as keyof typeof RELATION_FIELD_IDS];
     const links = entities.flatMap((entity) => {
       const relPath = entityPaths.get(entityKeyOf(entity));
-      return relPath ? [mdLink(entity.name, `../${relPath}`)] : [];
+      // Same folder: the link target is just the file name (live-verified).
+      const fileName = relPath?.split('/').pop();
+      return fileName ? [mdLink(entity.name, fileName)] : [];
     });
     owned.set(
       schema.labelOf(fieldId),
@@ -286,13 +315,148 @@ function buildOwnedItemKeys(
   return owned;
 }
 
+/**
+ * Own the user's multi-value `Type` field only enough to ADD our label:
+ * absent → `[Reference]`; present without "Reference" → existing values +
+ * Reference; present with it → not owned (entry passes through verbatim).
+ * User-added type values are never dropped.
+ */
+function setTypeUnion(
+  owned: Map<string, string | undefined>,
+  doc: { entries: { key: string; raw: string }[] },
+): void {
+  const raw = rawEntryValue(doc, TYPE_FIELD_LABEL);
+  if (raw === null || raw === '') {
+    owned.set(TYPE_FIELD_LABEL, yamlArray([TYPE_LABELS.reference]));
+    return;
+  }
+  const values = parseInlineArray(raw);
+  if (
+    values.some(
+      (value) => value.toLowerCase() === TYPE_LABELS.reference.toLowerCase(),
+    )
+  ) {
+    return; // already tagged — leave the user's entry untouched
+  }
+  owned.set(TYPE_FIELD_LABEL, yamlArray([...values, TYPE_LABELS.reference]));
+}
+
+/** The raw (unparsed) first-line value of an entry, or null when absent. */
+function rawEntryValue(
+  doc: { entries: { key: string; raw: string }[] },
+  key: string,
+): string | null {
+  const entry = doc.entries.find((candidate) => candidate.key === key);
+  if (!entry) return null;
+  const firstLine = entry.raw.split('\n', 1)[0] ?? '';
+  return firstLine.slice(firstLine.indexOf(':') + 1).trim();
+}
+
+/** Parse `[a, "b, c"]` (or a bare scalar) into trimmed, unquoted items. */
+function parseInlineArray(raw: string): string[] {
+  const inner =
+    raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
+  const items: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (const char of inner) {
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      current += char;
+    } else if (char === ',' && !inQuotes) {
+      items.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  items.push(current);
+  return items
+    .map((item) => item.trim())
+    .map((item) =>
+      item.startsWith('"') && item.endsWith('"') && item.length >= 2
+        ? item.slice(1, -1).replaceAll('\\"', '"')
+        : item,
+    )
+    .filter((item) => item.length > 0);
+}
+
+/**
+ * Append-only annotations: render a block for every annotation whose
+ * annoKey has not been appended before, under `## Annotations` (heading
+ * created at the end of the body when missing). Existing body lines are
+ * NEVER modified or removed — user edits inside the section survive, and
+ * annotations edited/deleted in Zotero go stale in Thymer by design.
+ */
+export function appendAnnotations(
+  body: string,
+  annotations: DesiredAnnotation[],
+  syncedAnnoKeys: string[] | undefined,
+): { body: string; appendedAnnoKeys: string[] } {
+  const already = new Set(syncedAnnoKeys ?? []);
+  const fresh = annotations.filter((anno) => !already.has(anno.annoKey));
+  if (!fresh.length) return { body, appendedAnnoKeys: [] };
+
+  const parts: string[] = [];
+  const trimmed = body.replace(/\s+$/, '');
+  if (trimmed) parts.push(trimmed);
+  if (!hasAnnotationsHeading(body)) parts.push(ANNOTATIONS_HEADING);
+  for (const anno of fresh) parts.push(renderAnnotation(anno));
+
+  return {
+    body: `${parts.join('\n\n')}\n`,
+    appendedAnnoKeys: fresh.map((anno) => anno.annoKey),
+  };
+}
+
+function hasAnnotationsHeading(body: string): boolean {
+  return body
+    .split('\n')
+    .some((line) => line.trim().toLowerCase() === '## annotations');
+}
+
+/**
+ * One markdown block per annotation, ending in a `zotero://open-pdf` deep
+ * link on its last line (not every annotation has a comment, so the link
+ * can't live there):
+ *   - highlight → the selected passage as a BLOCKQUOTE; a comment, if any,
+ *     is a tab-indented line below that the mirror ingests as a nested CHILD.
+ *   - note → the comment as PLAIN text (no blockquote — nothing was
+ *     highlighted).
+ *   - text-less, comment-less (e.g. a bare image) → a plain typed placeholder.
+ * (live-verified 2026-07-14)
+ */
+export function renderAnnotation(anno: DesiredAnnotation): string {
+  const appendLink = (lines: string[]): void => {
+    if (!anno.pdfLink) return;
+    const label = anno.page ? `p. ${anno.page}` : 'open in Zotero';
+    lines[lines.length - 1] += ` — [${label}](${anno.pdfLink})`;
+  };
+
+  // Highlight: quote the passage, nest the comment beneath.
+  if (anno.text) {
+    const lines = anno.text.split('\n').map((line) => `> ${line}`);
+    appendLink(lines);
+    if (anno.comment) {
+      for (const line of anno.comment.split('\n')) lines.push(`\t${line}`);
+    }
+    return lines.join('\n');
+  }
+
+  // Note (no highlight): plain text, not a blockquote.
+  const body = anno.comment ?? `*(${anno.type} annotation)*`;
+  const lines = body.split('\n');
+  appendLink(lines);
+  return lines.join('\n');
+}
+
 /** Find the item's existing file by stored path or a Zotero-Key scan. */
 async function locateItemFile(
   root: string,
   zoteroKey: string,
   prior: MirrorPrior | undefined,
 ): Promise<string | null> {
-  const folder = REFERENCES_COLLECTION_NAME;
+  const folder = NOTES_COLLECTION_NAME;
 
   if (prior?.filePath) {
     const key = await fileZoteroKey(root, prior.filePath);
@@ -312,15 +476,16 @@ async function locateItemFile(
 
 /**
  * The path the file should live at (title = filename). Collisions with a
- * different item get a numeric suffix; the located file itself at the
- * desired path is not a collision.
+ * different page (including the user's own notes — the folder is shared
+ * now) get a numeric suffix; the located file itself at the desired path is
+ * not a collision.
  */
 async function desiredItemPath(
   root: string,
   blob: DesiredState,
   located: string | null,
 ): Promise<string> {
-  const folder = REFERENCES_COLLECTION_NAME;
+  const folder = NOTES_COLLECTION_NAME;
   const stem = sanitizeFileStem(blob.title);
 
   for (let n = 1; ; n++) {
@@ -341,92 +506,12 @@ async function fileZoteroKey(
   return entryValue(parseDoc(text), 'Zotero Key');
 }
 
-const ANNO_STEM_MAX = 60;
-
-/**
- * One file per annotation, `Reference`-linked to the item file. Returns the
- * fresh annoKey → relPath map; annotations gone from the blob get their
- * files removed (→ Thymer trash).
- */
-export async function upsertAnnotationFiles(
-  root: string,
-  blob: DesiredState,
-  schema: FolderSchema,
-  itemRelPath: string,
-  prior: MirrorPrior | undefined,
-): Promise<{ annoFiles: Record<string, string>; newPaths: string[] }> {
-  const annoFiles: Record<string, string> = {};
-  const newPaths: string[] = [];
-  const itemStem = (itemRelPath.split('/').pop() ?? '').replace(/\.md$/, '');
-  const referenceLink = yamlText(mdLink(itemStem, `../${itemRelPath}`));
-
-  for (const anno of blob.annotations) {
-    const relPath = await annotationPath(root, anno, prior);
-    const fullPath = join(root, relPath);
-    const existing = await readText(fullPath);
-    const doc = parseDoc(existing);
-    // Not yet ingested (new, or orphaned by an earlier failed run) — the
-    // caller polls these so orphans surface as errors, not echo loops.
-    if (entryValue(doc, 'guid') === null) newPaths.push(relPath);
-
-    const owned = new Map<string, string | undefined>([
-      [schema.labelOf('annoKey'), yamlText(anno.annoKey)],
-      [schema.labelOf('type'), yamlText(anno.type)],
-      [schema.labelOf('text'), renderOptional(anno.text)],
-      [schema.labelOf('comment'), renderOptional(anno.comment)],
-      [schema.labelOf('color'), renderOptional(anno.color)],
-      [schema.labelOf('page'), renderOptional(anno.page)],
-      [
-        schema.labelOf('order'),
-        anno.order === undefined ? undefined : yamlNumber(anno.order),
-      ],
-      [schema.labelOf('pdfLink'), renderOptional(anno.pdfLink)],
-      [schema.labelOf('reference'), referenceLink],
-    ]);
-
-    await writeText(fullPath, serializeDoc(mergeOwned(doc, owned)));
-    annoFiles[anno.annoKey] = relPath;
-  }
-
-  for (const [annoKey, relPath] of Object.entries(prior?.annoFiles ?? {})) {
-    if (!(annoKey in annoFiles)) await remove(join(root, relPath));
-  }
-
-  return { annoFiles, newPaths };
-}
-
-function renderOptional(value: string | undefined): string | undefined {
-  return value === undefined || value === '' ? undefined : yamlText(value);
-}
-
-/** Existing file (verified by Anno Key) or a fresh name-with-key-suffix. */
-async function annotationPath(
-  root: string,
-  anno: DesiredAnnotation,
-  prior: MirrorPrior | undefined,
-): Promise<string> {
-  const stored = prior?.annoFiles?.[anno.annoKey];
-  if (stored && (await exists(join(root, stored)))) return stored;
-
-  const base = sanitizeFileStem(anno.text || anno.comment || anno.type).slice(
-    0,
-    ANNO_STEM_MAX,
-  );
-  // The annoKey suffix makes the name unique and survivable across text edits.
-  const suffix = anno.annoKey.replaceAll(':', '-');
-  return `${ANNOTATIONS_FOLDER}/${sanitizeFileStem(`${base} ${suffix}`)}.md`;
-}
-
-/** Tombstone: remove the item's file and all its annotation files. */
+/** Tombstone: remove the item's file (annotations live inside it). */
 export async function deleteItemFiles(
   root: string,
   prior: MirrorPrior | undefined,
 ): Promise<void> {
-  if (!prior) return;
-  if (prior.filePath) await remove(join(root, prior.filePath));
-  for (const relPath of Object.values(prior.annoFiles ?? {})) {
-    await remove(join(root, relPath));
-  }
+  if (prior?.filePath) await remove(join(root, prior.filePath));
 }
 
 function sleep(ms: number): Promise<void> {

@@ -10,7 +10,7 @@ zothymer-tools-menu-preferences =
 ## Thymer preferences
 
 zothymer-preferences-thymer-groupbox-heading = Thymer Connection
-zothymer-preferences-thymer-groupbox-description = Syncs items to Thymer by writing markdown files into the Markdown Mirror folder (Thymer's two-way file sync). Enable the Markdown Mirror in Thymer, load the "Zotero Sync" plugin once (it provisions the collections), then enter your workspace GUID and the mirror folder below.
+zothymer-preferences-thymer-groupbox-description = Syncs items to Thymer as typed pages in your Notes collection, by writing markdown files into the Markdown Mirror folder (Thymer's two-way file sync). Enable the Markdown Mirror in Thymer, load the "Zotero Sync" plugin once (it adds the Reference fields to Notes), then enter your workspace GUID and the mirror folder below.
 zothymer-preferences-thymer-workspace-label = Workspace GUID:
 zothymer-preferences-thymer-workspace-input =
     .placeholder = Your 26-character Thymer workspace GUID

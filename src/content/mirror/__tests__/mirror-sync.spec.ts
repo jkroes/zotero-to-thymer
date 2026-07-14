@@ -12,6 +12,7 @@ vi.mock('../mirror-schema', async (importOriginal) => ({
   loadFolderSchema: vi.fn().mockResolvedValue({
     labelOf: (id: string) => id,
     choiceLabels: () => new Set(),
+    choiceLabelsByFieldLabel: () => new Set(),
   }),
 }));
 
@@ -27,7 +28,6 @@ import {
   ensureEntityFile,
   entityKeyOf,
   readGuid,
-  upsertAnnotationFiles,
   upsertItemFile,
   waitForGuids,
 } from '../mirror-writer';
@@ -63,7 +63,7 @@ beforeEach(() => {
   );
   vi.mocked(ensureEntityFile).mockImplementation((_root, entity) =>
     Promise.resolve({
-      relPath: `People/${entity.name}.md`,
+      relPath: `Notes/${entity.name}.md`,
       created: true,
     }),
   );
@@ -71,14 +71,11 @@ beforeEach(() => {
   // A brand-new file has no guid until the mirror ingests it (post-poll,
   // readGuid sees the rewrite).
   vi.mocked(upsertItemFile).mockResolvedValue({
-    relPath: 'References/Test, 2024.md',
+    relPath: 'Notes/Test, 2024.md',
     created: true,
     guid: null,
     clearedLabels: [],
-  });
-  vi.mocked(upsertAnnotationFiles).mockResolvedValue({
-    annoFiles: {},
-    newPaths: [],
+    appendedAnnoKeys: [],
   });
   vi.mocked(readGuid).mockResolvedValue('GUID1');
 });
@@ -89,7 +86,7 @@ describe('runMirrorSync', () => {
     expect(provisionChoices).not.toHaveBeenCalled();
   });
 
-  it('provisions choices, then entities, then items, then annotations', async () => {
+  it('provisions choices, then entities, then items, then identity', async () => {
     const p = plan({
       relations: {
         Creators: [{ name: 'Ada', kind: 'person' }],
@@ -108,7 +105,6 @@ describe('runMirrorSync', () => {
       vi.mocked(waitForGuids).mock.invocationCallOrder[0], // entity poll
       vi.mocked(upsertItemFile).mock.invocationCallOrder[0],
       vi.mocked(waitForGuids).mock.invocationCallOrder[1], // item poll
-      vi.mocked(upsertAnnotationFiles).mock.invocationCallOrder[0],
       vi.mocked(saveThymerSyncData).mock.invocationCallOrder[0],
     ];
     expect([...order].toSorted((a, b) => (a ?? 0) - (b ?? 0))).toStrictEqual(
@@ -117,19 +113,20 @@ describe('runMirrorSync', () => {
 
     // Entity links passed through to the item write.
     const entityPaths = vi.mocked(upsertItemFile).mock.calls[0]?.[4];
-    expect(entityPaths?.get('person:ada')).toBe('People/Ada.md');
+    expect(entityPaths?.get('person:ada')).toBe('Notes/Ada.md');
   });
 
   it('dedupes entities across plans and only polls created files', async () => {
     vi.mocked(ensureEntityFile).mockResolvedValue({
-      relPath: 'People/Ada.md',
+      relPath: 'Notes/Ada.md',
       created: false, // already on disk
     });
     vi.mocked(upsertItemFile).mockResolvedValue({
-      relPath: 'References/Test, 2024.md',
+      relPath: 'Notes/Test, 2024.md',
       created: false,
       guid: 'GUID1', // already ingested
       clearedLabels: [],
+      appendedAnnoKeys: [],
     });
     const creators = {
       Creators: [{ name: 'Ada', kind: 'person' as const }],
@@ -145,58 +142,75 @@ describe('runMirrorSync', () => {
     await runMirrorSync(plans, params());
 
     expect(ensureEntityFile).toHaveBeenCalledTimes(1);
-    // No created entities and no annotations → no polls at all.
+    // No created entities and no new item files → no polls at all.
     expect(waitForGuids).not.toHaveBeenCalled();
   });
 
-  it('persists identity last with guid, path, and anno map', async () => {
-    vi.mocked(upsertAnnotationFiles).mockResolvedValue({
-      annoFiles: { '1:A': 'Annotations/x 1-A.md' },
-      newPaths: ['Annotations/x 1-A.md'],
+  it('persists identity last with guid, path, and the appended annoKeys', async () => {
+    vi.mocked(upsertItemFile).mockResolvedValue({
+      relPath: 'Notes/Test, 2024.md',
+      created: true,
+      guid: null,
+      clearedLabels: [],
+      appendedAnnoKeys: ['1:A'],
     });
     const p = plan({ annotations: [{ annoKey: '1:A', type: 'highlight' }] });
     const onItemSynced = vi.fn();
 
     await runMirrorSync([p], params(), { onItemSynced });
 
-    // The new annotation file is polled before identity is persisted.
-    expect(waitForGuids).toHaveBeenCalledWith('/mirror', [
-      'Annotations/x 1-A.md',
-    ]);
     expect(saveThymerSyncData).toHaveBeenCalledWith(p.item, {
       zoteroKey: '1:ABC',
       contentSig: 'sig',
       referenceGuid: 'GUID1',
-      filePath: 'References/Test, 2024.md',
-      annoFiles: { '1:A': 'Annotations/x 1-A.md' },
+      filePath: 'Notes/Test, 2024.md',
+      syncedAnnoKeys: ['1:A'],
     });
     expect(saveThymerTag).toHaveBeenCalledWith(p.item);
     expect(onItemSynced).toHaveBeenCalledWith(p.item);
   });
 
-  it('skips annotation files entirely when annotations are disabled, carrying the prior map forward', async () => {
+  it('unions newly appended annoKeys with the prior set', async () => {
+    vi.mocked(upsertItemFile).mockResolvedValue({
+      relPath: 'Notes/Test, 2024.md',
+      created: false,
+      guid: 'GUID1',
+      clearedLabels: [],
+      appendedAnnoKeys: ['1:B'],
+    });
     const p: ItemPlan = {
       item: {} as Zotero.Item,
-      blob: blob(), // filtered: annotations empty
-      prior: {
-        zoteroKey: '1:ABC',
-        annoFiles: { '1:A': 'Annotations/x 1-A.md' },
-      },
+      blob: blob(),
+      prior: { zoteroKey: '1:ABC', syncedAnnoKeys: ['1:A'] },
     };
 
-    await runMirrorSync([p], {
-      ...params(),
-      disabledFields: new Set(['annotations']),
-    });
+    await runMirrorSync([p], params());
 
-    // No upsert → no deletion of the existing annotation files (deleting
-    // them would trash their Thymer records).
-    expect(upsertAnnotationFiles).not.toHaveBeenCalled();
     expect(saveThymerSyncData).toHaveBeenCalledWith(
       p.item,
-      expect.objectContaining({
-        annoFiles: { '1:A': 'Annotations/x 1-A.md' },
-      }),
+      expect.objectContaining({ syncedAnnoKeys: ['1:A', '1:B'] }),
+    );
+  });
+
+  it('carries prior syncedAnnoKeys forward when nothing new was appended', async () => {
+    vi.mocked(upsertItemFile).mockResolvedValue({
+      relPath: 'Notes/Test, 2024.md',
+      created: false,
+      guid: 'GUID1',
+      clearedLabels: [],
+      appendedAnnoKeys: [],
+    });
+    const p: ItemPlan = {
+      item: {} as Zotero.Item,
+      blob: blob(), // e.g. annotations disabled by the field picker
+      prior: { zoteroKey: '1:ABC', syncedAnnoKeys: ['1:A'] },
+    };
+
+    await runMirrorSync([p], params());
+
+    expect(saveThymerSyncData).toHaveBeenCalledWith(
+      p.item,
+      expect.objectContaining({ syncedAnnoKeys: ['1:A'] }),
     );
   });
 
@@ -217,10 +231,11 @@ describe('runMirrorSync', () => {
 
   it('clears vanished scalars over MCP using the record guid', async () => {
     vi.mocked(upsertItemFile).mockResolvedValue({
-      relPath: 'References/Test, 2024.md',
+      relPath: 'Notes/Test, 2024.md',
       created: false,
       guid: 'GUID1',
       clearedLabels: ['Pages', 'Extra'],
+      appendedAnnoKeys: [],
     });
 
     await runMirrorSync([plan()], params());
@@ -239,7 +254,7 @@ describe('runMirrorSync', () => {
     );
   });
 
-  it('handles tombstones by deleting files and persisting nothing', async () => {
+  it('handles tombstones by deleting the file and persisting nothing', async () => {
     const p = plan({ deleted: true });
     const onItemSynced = vi.fn();
 
