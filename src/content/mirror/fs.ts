@@ -28,6 +28,11 @@ export function exists(path: string): Promise<boolean> {
   return IOUtils.exists(path);
 }
 
+/** Copy a file (binary-safe — used for annotation PNGs). */
+export function copyFile(fromPath: string, toPath: string): Promise<void> {
+  return IOUtils.copy(fromPath, toPath);
+}
+
 export function move(fromPath: string, toPath: string): Promise<void> {
   return IOUtils.move(fromPath, toPath);
 }

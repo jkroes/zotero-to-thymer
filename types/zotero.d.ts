@@ -1,4 +1,15 @@
 declare namespace Zotero {
+  /**
+   * Annotation image cache (live-verified 2026-07-14): each image-type
+   * annotation has a rendered PNG at `<dataDir>/cache/library/<KEY>.png`,
+   * generated on demand from the PDF by `saveCacheImage`.
+   */
+  interface Annotations {
+    hasCacheImage(annotation: Item): boolean;
+    getCacheImagePath(annotation: Item): string;
+    saveCacheImage(annotation: Item): Promise<void>;
+  }
+
   interface Attachments {
     /**
      * Create a link attachment from a URL.
@@ -543,6 +554,7 @@ declare namespace Zotero {
 }
 
 declare interface Zotero {
+  Annotations: Zotero.Annotations;
   Attachments: Zotero.Attachments;
   Collections: Zotero.Collections;
   CreatorTypes: Zotero.CreatorTypes;

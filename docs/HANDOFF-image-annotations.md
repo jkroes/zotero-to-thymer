@@ -1,94 +1,65 @@
-# Handoff: upload image annotations instead of the placeholder
+# Image annotations: real image blocks (DONE)
 
-**Status:** investigated + live-verified feasible, NOT yet built. Everything else in the
-single-collection redesign is committed (`70633d0`) and live-verified. This is the one remaining
-follow-up the user asked for.
+**Status: BUILT + LIVE-VERIFIED 2026-07-14.** Image-type Zotero annotations now sync as real
+Thymer image blocks instead of the `*(image annotation)*` placeholder (which remains only as
+the fallback when no PNG can be resolved). 219 unit tests green.
 
-## Goal
+## How it works
 
-Image-type Zotero annotations currently render as the plain-text placeholder
-`*(image annotation)*` in the Reference page body. Instead, embed the annotation's actual image
-as a real Thymer image block.
+- **Zotero side** (`src/content/thymer/annotations.ts`): the `image` case resolves
+  `Zotero.Annotations.getCacheImagePath()` (generating via `saveCacheImage()` when
+  `hasCacheImage()` is false) and puts the absolute path on the blob as
+  `DesiredAnnotation.imagePath`. Generation failure (PDF gone) → no path → placeholder.
+  `imagePath` is excluded from `signatureOf` (annoKey already identifies the annotation).
+  `readItemAnnotations`/`buildAnnotation` are now async.
+- **Writer** (`src/content/mirror/mirror-writer.ts`): `copyFreshAnnotationImages` copies the
+  PNG into the Notes folder as `<annoKey with ':'→'-'>.png` — ONLY for annotations being
+  appended this upsert (gated by `syncedAnnoKeys`; the mirror consumes the source PNG into
+  `files/` at the mirror root, so re-copying on re-sync would litter). The deleted-page
+  recovery path (priorAnnoKeys undefined) re-appends AND re-copies, as required.
+- **Rendered block layout** (user-chosen: no caption):
 
-## What's already verified live (2026-07-14)
+  ```
+  ![](1-EAQ4DBBW.png)
+  [p. 85](zotero://open-pdf/...?annotation=EAQ4DBBW)
+  	<comment, if any — tab-nested under the link line>
+  ```
 
-**Zotero side — the image file exists on disk per annotation:**
-- `Zotero.Annotations.getCacheImagePath(annotation)` → e.g. `/Users/jkroes/Zotero/cache/library/<KEY>.png` (confirmed exists on disk).
-- `Zotero.Annotations.hasCacheImage(annotation)` → bool; `Zotero.Annotations.saveCacheImage(annotation)` (async) generates it from the PDF when missing.
-- 22 image annotations exist in the user's library — real test data. Sample key `ZHMJVF2B`.
+## Key fact discovered live (2026-07-14)
 
-**Mirror side — embedding works (tested on the `Test note` scratch page):**
-- Copy the PNG into the `Notes/` mirror folder and write `![caption](file.png)` in the page body.
-- The mirror uploads the PNG to Thymer blob storage, replaces the markdown with a real
-  `type: "image"` line item (`meta_properties.fileguid` / `file.blob_guid` set; the alt text
-  becomes `meta_properties.filename`), and MOVES the source PNG into `.thymer/uploaded/`.
-- Verified via `get_line_items`: the image block rendered correctly on the page.
+**The mirror SILENTLY DROPS tab-indented children under an image line.** Image line items are
+leaf types (same rule as MCP write shapes: no children under `hr`/`image`/`file`/…), and the
+mirror enforces it by discarding the nested lines — the first live sync lost the link and
+comment that were tab-indented under the embed. Hence the layout above: the deep link is a
+plain SIBLING line under the image, and the comment nests under the LINK line (text lines
+accept children fine).
 
-## Build plan
+Other mirror facts confirmed: `![](file.png)` with empty alt ingests fine (filename becomes
+"image"); the mirror rewrites the embed as `![image](../files/<name>.png)` and moves the
+source PNG to `files/` at the mirror root (not `.thymer/uploaded/` as the earlier scratch test
+suggested); editing the page file to insert sibling lines after an existing image block
+round-trips correctly.
 
-1. **`src/content/thymer/annotations.ts`** — for the `image` case, resolve the cache image path
-   (call `saveCacheImage` first when `!hasCacheImage`, wrapped in try/catch). Add the absolute
-   source path to the `DesiredAnnotation` (new optional field, e.g. `imagePath?: string`). This
-   makes `buildAnnotation`/`readItemAnnotations` async — thread the await up through
-   `buildDesiredState` (already async). Keep `imagePath` OUT of `signatureOf` (annoKey already
-   identifies the annotation).
-2. **`src/content/mirror/fs.ts`** — add a `copyFile(from, to)` (IOUtils.copy); the wrapper only
-   does text today.
-3. **`src/content/mirror/mirror-writer.ts`**:
-   - In `upsertItemFile`, for each FRESH image annotation (not in the effective
-     `priorAnnoKeys`) with an `imagePath`, copy the PNG into the Notes folder as a unique stem
-     (e.g. `sanitizeFileStem(annoKey.replaceAll(':','-')) + '.png'`), and record the dest
-     filename on the annotation so the renderer can reference it.
-   - `renderAnnotation`: when an image annotation has a copied file, emit
-     `![<caption>](<file.png>)` as the block body; put the page link (and comment, if any) on a
-     tab-indented nested line beneath (an image line item can't carry an inline link segment).
-     Fall back to the existing `*(image annotation)*` placeholder only when no image is available.
-   - Keep `appendAnnotations` pure if possible (operate on annotations that already have the dest
-     filename set), or thread the copy through it — writer's choice.
-4. **Append-only interaction:** the copy must happen ONLY for annotations being appended this
-   sync (gated by `syncedAnnoKeys`), since the mirror consumes the source PNG. Re-syncs and the
-   annotations field-picker toggle must not re-copy. The deleted-page recovery path
-   (`located ? prior.syncedAnnoKeys : undefined`) already re-appends on recreate — images must
-   re-copy there too.
-5. **Tests:** annotations.spec (image now carries imagePath, no fake text), mirror-writer.spec
-   (renderAnnotation image → `![...]` + nested link/comment; copy happens once for fresh image
-   annotations; placeholder fallback when no path). Mock the new `copyFile` in the fs mock.
+## Live verification record
 
-## Design decisions (proposed defaults — confirm with user if unsure)
+Synced item `1:AI3FFMMN` "Trigonometry (Solutions)" (1 image annotation, key EAQ4DBBW, p. 85,
+with comment): page `Notes/Trigonometry (Solutions).md` created, PNG uploaded to blob storage
+(`get_line_items` shows `type: "image"` with `blob_guid`), link + comment lines verified as
+sibling/child line items. The tab-indent drop was repaired in place via a mirror file edit —
+the page is now in the exact final layout.
 
-- **Caption / alt text:** the mirror shows alt as the filename. Use something like the page label
-  (`p. 5`) or a fixed `Image annotation`. (Undecided — pick something readable.)
-- **Fallback:** generate the cache image when missing; placeholder only if generation throws
-  (PDF unavailable). The user approved this direction.
-- **Layout:** image block, then a nested line with the page link and comment. Confirm the user
-  is happy once it's rendered live.
+Harness notes (for future re-verification): dev Zotero via `pnpm start`; debugger port is
+dynamic (`lsof -i -P -n | grep -i "zotero.*LISTEN"` — this session 61995; 23119 is the
+Connector); eval via `zotero-eval.mjs <port> <js>` (copy lives in session scratchpads — stash
+async results on `globalThis.__x` and poll); web-ext discards prefs on exit, so re-set
+`extensions.zothymer.mirrorRoot` each run; trigger with
+`Zotero.Zothymer.eventManager.emit('request-sync-items', [Zotero.Items.get(<id>)])`.
 
-## How to re-verify live (same harness as this session)
+## Sandbox / hygiene notes (unchanged)
 
-1. Dev Zotero is launched via `pnpm start` from `zotero-to-thymer/` (web-ext, hot-reloads on
-   source save). Its DevTools debugger listens on a DYNAMIC port — find it:
-   `lsof -i -P -n | grep "zotero.*LISTEN"` (this session it was 61643; 23119 is the Connector,
-   not the debugger).
-2. Eval JS in Zotero over that port with the scratch helper
-   `scratchpad/zotero-eval.mjs <port> <js-file>` (raw Gecko RDP: root → getProcess(0) →
-   getTarget → consoleActor → evaluateJSAsync). For async results, stash on a `globalThis.__x`
-   and poll it with a second eval (promises don't resolve inline).
-3. This dev profile's `extensions.zothymer.mirrorRoot` was set to
-   `/Users/jkroes/Thymer Markdown Mirror` for testing (web-ext discards pref changes on exit, so
-   re-set it each run). The real xpi install's pref is separate and untouched.
-4. Trigger a sync: `Zotero.Zothymer.eventManager.emit('request-sync-items', [Zotero.Items.get(<id>)])`
-   or `'request-sync-collection', Zotero.Collections.get(<id>)`. Find an item with image
-   annotations by scanning `getAnnotations()` for `annotationType === 'image'`.
-5. Inspect the result: the page file in `~/Thymer Markdown Mirror/Notes/`, then
-   `mcp__thymer__get_line_items` on the record guid to confirm a real image block.
-
-## Sandbox / hygiene notes
-
-- The Thymer "Zotero Sync" global plugin guid is `1YJYAM3Z6T0JNCZX3N0X3YHNY0` (created this
-  session; deployed via `update_plugin_code` / `update_plugin_json_config`).
-- Test-only pages left in Notes from this session's e2e: `ESM 222 Course Logistics`,
-  `GIS fundamentals...`, `Tracking and forecasting...`, plus 5 People pages (Deyle, May, Munch,
-  Sugihara, Bolstad). The user has not decided whether to keep or trash them — ASK before
-  cleaning up (never delete containers; Thymer has no empty-trash).
-- Notes `Type` field options `Reference`/`Person`/`Organization` were provisioned live (via MCP
-  and by the plugin) — already present in the workspace.
+- The Thymer "Zotero Sync" global plugin guid is `1YJYAM3Z6T0JNCZX3N0X3YHNY0`.
+- Test-only pages in Notes from the 2026-07-14 e2e sessions: `ESM 222 Course Logistics`,
+  `GIS fundamentals...`, `Tracking and forecasting...`, `Trigonometry (Solutions)`, plus
+  People pages (Deyle, May, Munch, Sugihara, Bolstad, Philip Healy). The user chose to LEAVE
+  them — do not clean up without asking (never delete containers; Thymer has no empty-trash).
+- Notes `Type` options `Reference`/`Person`/`Organization` are provisioned in the workspace.

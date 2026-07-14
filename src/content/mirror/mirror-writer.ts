@@ -47,6 +47,7 @@ import {
 } from './frontmatter';
 import {
   childFileNames,
+  copyFile,
   exists,
   join,
   move,
@@ -228,9 +229,14 @@ export async function upsertItemFile(
   // empty too — otherwise deleting the page and re-syncing would recreate it
   // with every annotation gated out (annotation loss on recovery).
   const priorAnnoKeys = located ? prior?.syncedAnnoKeys : undefined;
+  const annotations = await copyFreshAnnotationImages(
+    root,
+    blob.annotations,
+    priorAnnoKeys,
+  );
   const { body, appendedAnnoKeys } = appendAnnotations(
     merged.body,
-    blob.annotations,
+    annotations,
     priorAnnoKeys,
   );
   await writeText(fullPath, serializeDoc({ entries: merged.entries, body }));
@@ -382,6 +388,45 @@ function parseInlineArray(raw: string): string[] {
 }
 
 /**
+ * A DesiredAnnotation plus the writer-internal name of the PNG copied into
+ * the Notes folder for this upsert. Never part of the blob or the signature.
+ */
+export type RenderableAnnotation = DesiredAnnotation & { imageFile?: string };
+
+/**
+ * Copy the cached PNG of each FRESH image annotation (one this upsert will
+ * append) into the Notes folder and record the destination file name for the
+ * renderer. The mirror uploads the PNG to blob storage and MOVES the source
+ * into `.thymer/uploaded/`, so the copy is strictly one-shot: an annoKey
+ * already in syncedAnnoKeys is never re-copied, while the deleted-page
+ * recovery path (priorAnnoKeys undefined) re-copies along with the re-append.
+ * A failed copy (cache PNG vanished) degrades to the text placeholder.
+ */
+async function copyFreshAnnotationImages(
+  root: string,
+  annotations: DesiredAnnotation[],
+  syncedAnnoKeys: string[] | undefined,
+): Promise<RenderableAnnotation[]> {
+  const already = new Set(syncedAnnoKeys ?? []);
+  return Promise.all(
+    annotations.map(async (anno): Promise<RenderableAnnotation> => {
+      if (anno.type !== 'image' || !anno.imagePath || already.has(anno.annoKey))
+        return anno;
+      const imageFile = `${sanitizeFileStem(anno.annoKey.replaceAll(':', '-'))}.png`;
+      try {
+        await copyFile(
+          anno.imagePath,
+          join(root, NOTES_COLLECTION_NAME, imageFile),
+        );
+      } catch {
+        return anno;
+      }
+      return { ...anno, imageFile };
+    }),
+  );
+}
+
+/**
  * Append-only annotations: render a block for every annotation whose
  * annoKey has not been appended before, under `## Annotations` (heading
  * created at the end of the body when missing). Existing body lines are
@@ -390,7 +435,7 @@ function parseInlineArray(raw: string): string[] {
  */
 export function appendAnnotations(
   body: string,
-  annotations: DesiredAnnotation[],
+  annotations: RenderableAnnotation[],
   syncedAnnoKeys: string[] | undefined,
 ): { body: string; appendedAnnoKeys: string[] } {
   const already = new Set(syncedAnnoKeys ?? []);
@@ -419,19 +464,41 @@ function hasAnnotationsHeading(body: string): boolean {
  * One markdown block per annotation, ending in a `zotero://open-pdf` deep
  * link on its last line (not every annotation has a comment, so the link
  * can't live there):
+ *   - image with a copied PNG → a caption-less image embed; the deep link is
+ *     a plain SIBLING line directly beneath (an image line item is a leaf —
+ *     it can't carry an inline link segment, and the mirror SILENTLY DROPS
+ *     tab-indented children under it; live-verified 2026-07-14), with the
+ *     comment, if any, tab-nested under the link line.
  *   - highlight → the selected passage as a BLOCKQUOTE; a comment, if any,
  *     is a tab-indented line below that the mirror ingests as a nested CHILD.
- *   - note → the comment as PLAIN text (no blockquote — nothing was
- *     highlighted).
- *   - text-less, comment-less (e.g. a bare image) → a plain typed placeholder.
+ *   - note → the comment wrapped in a `::: note` fence, which the mirror
+ *     ingests as a note-styled block (block_style: "note" — live-verified
+ *     2026-07-14 on the Test note page).
+ *   - text-less, comment-less (e.g. an image with no resolvable PNG) → a
+ *     plain typed placeholder.
  * (live-verified 2026-07-14)
  */
-export function renderAnnotation(anno: DesiredAnnotation): string {
+export function renderAnnotation(anno: RenderableAnnotation): string {
+  const linkLabel = anno.page ? `p. ${anno.page}` : 'open in Zotero';
   const appendLink = (lines: string[]): void => {
     if (!anno.pdfLink) return;
-    const label = anno.page ? `p. ${anno.page}` : 'open in Zotero';
-    lines[lines.length - 1] += ` — [${label}](${anno.pdfLink})`;
+    lines[lines.length - 1] += ` — [${linkLabel}](${anno.pdfLink})`;
   };
+
+  // Image: the embed alone on its line; link and comment MUST NOT be
+  // indented under it (dropped — see the doc comment above).
+  if (anno.imageFile) {
+    const lines = [`![](${anno.imageFile})`];
+    if (anno.pdfLink) {
+      lines.push(`[${linkLabel}](${anno.pdfLink})`);
+      if (anno.comment) {
+        for (const line of anno.comment.split('\n')) lines.push(`\t${line}`);
+      }
+    } else if (anno.comment) {
+      lines.push(...anno.comment.split('\n'));
+    }
+    return lines.join('\n');
+  }
 
   // Highlight: quote the passage, nest the comment beneath.
   if (anno.text) {
@@ -443,7 +510,16 @@ export function renderAnnotation(anno: DesiredAnnotation): string {
     return lines.join('\n');
   }
 
-  // Note (no highlight): plain text, not a blockquote.
+  // Note (a typed Zotero note): a note-styled callout block.
+  if (anno.type === 'note' && anno.comment) {
+    const lines = anno.comment.split('\n');
+    appendLink(lines);
+    return ['::: note', ...lines.map((line) => `    ${line}`), ':::'].join(
+      '\n',
+    );
+  }
+
+  // Everything else (e.g. an image with no resolvable PNG): plain text.
   const body = anno.comment ?? `*(${anno.type} annotation)*`;
   const lines = body.split('\n');
   appendLink(lines);

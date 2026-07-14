@@ -40,6 +40,12 @@ function seedFsMock(): void {
   vi.mocked(fs.exists).mockImplementation((path) =>
     Promise.resolve(files.has(path)),
   );
+  vi.mocked(fs.copyFile).mockImplementation((from, to) => {
+    const data = files.get(from);
+    if (data === undefined) return Promise.reject(new Error('NotFoundError'));
+    files.set(to, data);
+    return Promise.resolve();
+  });
   vi.mocked(fs.move).mockImplementation((from, to) => {
     const text = files.get(from);
     if (text !== undefined) {
@@ -584,6 +590,105 @@ describe('upsertItemFile — append-only annotations', () => {
   });
 });
 
+describe('upsertItemFile — image annotations', () => {
+  const imageAnno = {
+    annoKey: '1:IMG1',
+    type: 'image',
+    page: '5',
+    pdfLink: 'zotero://open-pdf/library/items/X?annotation=IMG1',
+    imagePath: '/zotero/cache/library/IMG1.png',
+  };
+
+  beforeEach(() => {
+    files.set('/zotero/cache/library/IMG1.png', 'PNGDATA');
+  });
+
+  it('copies the PNG into the Notes folder and embeds it with the link nested', async () => {
+    const result = await upsertItemFile(
+      ROOT,
+      makeBlob({ annotations: [imageAnno] }),
+      passthroughSchema,
+      undefined,
+      new Map(),
+    );
+
+    expect(result.appendedAnnoKeys).toStrictEqual(['1:IMG1']);
+    expect(files.get('/mirror/Notes/1-IMG1.png')).toBe('PNGDATA');
+    expect(files.get('/mirror/Notes/Stoll, 1979.md')).toContain(
+      '![](1-IMG1.png)\n[p. 5](zotero://open-pdf/library/items/X?annotation=IMG1)',
+    );
+  });
+
+  it('never re-copies for an annotation recorded in syncedAnnoKeys', async () => {
+    files.set(
+      '/mirror/Notes/Stoll, 1979.md',
+      '---\nguid: G\nZotero Key: "1:ABCD1234"\n---\n\n## Annotations\n\n![](1-IMG1.png)\n',
+    );
+
+    const result = await upsertItemFile(
+      ROOT,
+      makeBlob({ annotations: [imageAnno] }),
+      passthroughSchema,
+      { filePath: 'Notes/Stoll, 1979.md', syncedAnnoKeys: ['1:IMG1'] },
+      new Map(),
+    );
+
+    expect(result.appendedAnnoKeys).toStrictEqual([]);
+    expect(vi.mocked(fs.copyFile)).not.toHaveBeenCalled();
+  });
+
+  it('re-copies when the page was deleted and is being recreated', async () => {
+    // No file on disk, but prior identity lists the annoKey: the recovery
+    // path re-appends the block, so the PNG must be re-copied too (the
+    // mirror consumed the previous copy into .thymer/uploaded/).
+    const result = await upsertItemFile(
+      ROOT,
+      makeBlob({ annotations: [imageAnno] }),
+      passthroughSchema,
+      { filePath: 'Notes/Stoll, 1979.md', syncedAnnoKeys: ['1:IMG1'] },
+      new Map(),
+    );
+
+    expect(result.appendedAnnoKeys).toStrictEqual(['1:IMG1']);
+    expect(files.get('/mirror/Notes/1-IMG1.png')).toBe('PNGDATA');
+  });
+
+  it('falls back to the placeholder when the annotation has no imagePath', async () => {
+    await upsertItemFile(
+      ROOT,
+      makeBlob({
+        annotations: [{ ...imageAnno, imagePath: undefined }],
+      }),
+      passthroughSchema,
+      undefined,
+      new Map(),
+    );
+
+    expect(vi.mocked(fs.copyFile)).not.toHaveBeenCalled();
+    const text = files.get('/mirror/Notes/Stoll, 1979.md') ?? '';
+    expect(text).toContain('*(image annotation)*');
+    expect(text).not.toContain('![](');
+  });
+
+  it('falls back to the placeholder when the copy fails', async () => {
+    files.delete('/zotero/cache/library/IMG1.png');
+
+    const result = await upsertItemFile(
+      ROOT,
+      makeBlob({ annotations: [imageAnno] }),
+      passthroughSchema,
+      undefined,
+      new Map(),
+    );
+
+    // Still appended (the annotation is not lost) — just without the image.
+    expect(result.appendedAnnoKeys).toStrictEqual(['1:IMG1']);
+    const text = files.get('/mirror/Notes/Stoll, 1979.md') ?? '';
+    expect(text).toContain('*(image annotation)*');
+    expect(text).not.toContain('![](');
+  });
+});
+
 describe('appendAnnotations', () => {
   it('returns the body untouched when there is nothing new', () => {
     const body = 'anything at all\n';
@@ -635,7 +740,7 @@ describe('renderAnnotation', () => {
     ).toBe('> just a highlight — [p. 7](zotero://open-pdf/x)');
   });
 
-  it('renders a note as plain text (no blockquote) with the comment as body', () => {
+  it('renders a note as a note-styled callout block', () => {
     expect(
       renderAnnotation({
         annoKey: '1:N',
@@ -644,10 +749,22 @@ describe('renderAnnotation', () => {
         page: '4',
         pdfLink: 'zotero://open-pdf/n',
       }),
-    ).toBe('a standalone note — [p. 4](zotero://open-pdf/n)');
+    ).toBe(
+      '::: note\n    a standalone note — [p. 4](zotero://open-pdf/n)\n:::',
+    );
   });
 
-  it('renders a comment-bearing image as plain text', () => {
+  it('indents every line of a multi-line note inside the fence', () => {
+    expect(
+      renderAnnotation({
+        annoKey: '1:N',
+        type: 'note',
+        comment: 'line one\nline two',
+      }),
+    ).toBe('::: note\n    line one\n    line two\n:::');
+  });
+
+  it('renders a comment-bearing image as plain text when no PNG was copied', () => {
     expect(
       renderAnnotation({
         annoKey: '1:I',
@@ -656,6 +773,46 @@ describe('renderAnnotation', () => {
         pdfLink: 'zotero://open-pdf/i',
       }),
     ).toBe('the figure shows X — [open in Zotero](zotero://open-pdf/i)');
+  });
+
+  it('renders a copied image as a caption-less embed with the link as a SIBLING line', () => {
+    // NOT tab-indented: the mirror silently drops children nested under an
+    // image line item (leaf type) — live-verified 2026-07-14.
+    expect(
+      renderAnnotation({
+        annoKey: '1:IMG1',
+        type: 'image',
+        page: '5',
+        pdfLink: 'zotero://open-pdf/img',
+        imagePath: '/zotero/cache/library/IMG1.png',
+        imageFile: '1-IMG1.png',
+      }),
+    ).toBe('![](1-IMG1.png)\n[p. 5](zotero://open-pdf/img)');
+  });
+
+  it('nests the image comment under the link line', () => {
+    expect(
+      renderAnnotation({
+        annoKey: '1:IMG1',
+        type: 'image',
+        comment: 'figure of interest',
+        pdfLink: 'zotero://open-pdf/img',
+        imageFile: '1-IMG1.png',
+      }),
+    ).toBe(
+      '![](1-IMG1.png)\n[open in Zotero](zotero://open-pdf/img)\n\tfigure of interest',
+    );
+  });
+
+  it('renders a link-less image comment as a sibling line (never nested under the image)', () => {
+    expect(
+      renderAnnotation({
+        annoKey: '1:IMG1',
+        type: 'image',
+        comment: 'figure of interest',
+        imageFile: '1-IMG1.png',
+      }),
+    ).toBe('![](1-IMG1.png)\nfigure of interest');
   });
 
   it('falls back to a plain typed placeholder when there is no text or comment', () => {

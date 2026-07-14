@@ -53,7 +53,7 @@ function setupItem(attachments: Zotero.Item[]): Zotero.Item {
 }
 
 describe('readItemAnnotations', () => {
-  it('extracts a highlight annotation with text and comment', () => {
+  it('extracts a highlight annotation with text and comment', async () => {
     const anno = makeAnnotation({
       annotationType: 'highlight',
       annotationText: 'important finding',
@@ -62,7 +62,7 @@ describe('readItemAnnotations', () => {
     const attachment = makeAttachment('ATT1', [anno]);
     const item = setupItem([attachment]);
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
@@ -77,20 +77,20 @@ describe('readItemAnnotations', () => {
     expect(result[0]!.pdfLink).toContain('annotation=ANNO1');
   });
 
-  it('treats underline annotations as highlights', () => {
+  it('treats underline annotations as highlights', async () => {
     const anno = makeAnnotation({
       annotationType: 'underline',
       annotationText: 'underlined text',
     });
     const item = setupItem([makeAttachment('ATT1', [anno])]);
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result).toHaveLength(1);
     expect(result[0]!.type).toBe('highlight');
   });
 
-  it('extracts note annotations (comment only, no text)', () => {
+  it('extracts note annotations (comment only, no text)', async () => {
     const anno = makeAnnotation({
       annotationType: 'note',
       annotationText: '',
@@ -98,7 +98,7 @@ describe('readItemAnnotations', () => {
     });
     const item = setupItem([makeAttachment('ATT1', [anno])]);
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
@@ -108,47 +108,101 @@ describe('readItemAnnotations', () => {
     expect(result[0]!.text).toBeUndefined();
   });
 
-  it('extracts image annotations', () => {
+  it('extracts image annotations with the cached PNG path', async () => {
     const anno = makeAnnotation({
       annotationType: 'image',
       annotationText: '',
       annotationComment: '',
     });
     const item = setupItem([makeAttachment('ATT1', [anno])]);
+    zoteroMock.Annotations.hasCacheImage.mockReturnValue(true);
+    // Generation must be skipped when the cache image exists — a call here
+    // would reject and strip the imagePath, failing the assertion below.
+    zoteroMock.Annotations.saveCacheImage.mockRejectedValue(
+      new Error('must not be called'),
+    );
+    zoteroMock.Annotations.getCacheImagePath.mockReturnValue(
+      '/zotero/cache/library/ANNO1.png',
+    );
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({ type: 'image' });
-    // No fake text: the renderer emits a placeholder (or uses the comment).
+    expect(result[0]).toMatchObject({
+      type: 'image',
+      imagePath: '/zotero/cache/library/ANNO1.png',
+    });
+    // No fake text: the renderer embeds the image (or emits a placeholder).
     expect(result[0]!.text).toBeUndefined();
   });
 
-  it('skips ink annotations (no text content)', () => {
+  it('generates the cache image when missing', async () => {
+    const anno = makeAnnotation({
+      annotationType: 'image',
+      annotationText: '',
+      annotationComment: '',
+    });
+    const item = setupItem([makeAttachment('ATT1', [anno])]);
+    zoteroMock.Annotations.hasCacheImage.mockReturnValue(false);
+    let generatedFor: Zotero.Item | undefined;
+    zoteroMock.Annotations.saveCacheImage.mockImplementation((a) => {
+      generatedFor = a;
+      return Promise.resolve();
+    });
+    zoteroMock.Annotations.getCacheImagePath.mockReturnValue(
+      '/zotero/cache/library/ANNO1.png',
+    );
+
+    const result = await readItemAnnotations(item);
+
+    expect(generatedFor).toBe(anno);
+    expect(result[0]!.imagePath).toBe('/zotero/cache/library/ANNO1.png');
+  });
+
+  it('keeps the image annotation without a path when generation fails', async () => {
+    const anno = makeAnnotation({
+      annotationType: 'image',
+      annotationText: '',
+      annotationComment: '',
+    });
+    const item = setupItem([makeAttachment('ATT1', [anno])]);
+    zoteroMock.Annotations.hasCacheImage.mockReturnValue(false);
+    zoteroMock.Annotations.saveCacheImage.mockRejectedValue(
+      new Error('PDF unavailable'),
+    );
+
+    const result = await readItemAnnotations(item);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ type: 'image' });
+    expect(result[0]!.imagePath).toBeUndefined();
+  });
+
+  it('skips ink annotations (no text content)', async () => {
     const anno = makeAnnotation({
       annotationType: 'ink',
       annotationText: '',
     });
     const item = setupItem([makeAttachment('ATT1', [anno])]);
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result).toEqual([]);
   });
 
-  it('skips highlights with empty text', () => {
+  it('skips highlights with empty text', async () => {
     const anno = makeAnnotation({
       annotationType: 'highlight',
       annotationText: '',
     });
     const item = setupItem([makeAttachment('ATT1', [anno])]);
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result).toEqual([]);
   });
 
-  it('sorts annotations by annotationSortIndex (reading order)', () => {
+  it('sorts annotations by annotationSortIndex (reading order)', async () => {
     const late = makeAnnotation({
       key: 'LATE',
       annotationSortIndex: '00010|000200|00100',
@@ -161,7 +215,7 @@ describe('readItemAnnotations', () => {
     });
     const item = setupItem([makeAttachment('ATT1', [late, early])]);
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result).toHaveLength(2);
     expect(result[0]!.annoKey).toBe('1:EARLY');
@@ -170,28 +224,28 @@ describe('readItemAnnotations', () => {
     expect(result[1]!.order).toBe(2);
   });
 
-  it('skips non-file attachments', () => {
+  it('skips non-file attachments', async () => {
     const attachment = mock<Zotero.Item>({ key: 'ATT1' });
     attachment.isFileAttachment.mockReturnValue(false);
     attachment.getAnnotations.mockReturnValue([]);
     const item = setupItem([attachment]);
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result).toEqual([]);
   });
 
-  it('returns empty when the item has no attachments', () => {
+  it('returns empty when the item has no attachments', async () => {
     const item = mock<Zotero.Item>({ libraryID: 1 });
     item.getAttachments.mockReturnValue([]);
     zoteroMock.Items.get.mockReturnValue([]);
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result).toEqual([]);
   });
 
-  it('builds group-aware pdfLink for group library items', () => {
+  it('builds group-aware pdfLink for group library items', async () => {
     const anno = makeAnnotation({ annotationText: 'grouped' });
     const attachment = makeAttachment('ATT1', [anno]);
     const item = setupItem([attachment]);
@@ -199,7 +253,7 @@ describe('readItemAnnotations', () => {
       'http://zotero.org/groups/42/items/ATT1',
     );
 
-    const result = readItemAnnotations(item);
+    const result = await readItemAnnotations(item);
 
     expect(result[0]!.pdfLink).toBe(
       'zotero://open-pdf/groups/42/items/ATT1?annotation=ANNO1',

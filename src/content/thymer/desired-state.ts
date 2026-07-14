@@ -32,6 +32,12 @@ export type DesiredAnnotation = {
   page?: string;
   order?: number;
   pdfLink?: string;
+  /**
+   * Image annotations only: absolute path of Zotero's cached PNG render.
+   * Excluded from the signature (annoKey already identifies the annotation);
+   * the mirror writer copies the file into the Notes folder on first append.
+   */
+  imagePath?: string;
 };
 
 export type DesiredState = {
@@ -83,7 +89,7 @@ function toEntities(links: { name: string; tag: string }[]): DesiredEntity[] {
 export async function buildDesiredState(
   item: Zotero.Item,
 ): Promise<DesiredState> {
-  const annotations = readItemAnnotations(item);
+  const annotations = await readItemAnnotations(item);
   const isPodcast = item.itemType === 'podcast';
   const get = (name: string): string | undefined =>
     item.getField(name) || undefined;

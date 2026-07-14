@@ -6,7 +6,9 @@
  * Mapping:
  *   - highlight / underline -> type "highlight"; text = selected text, comment = note.
  *   - note / text           -> type "note"; comment = the typed content.
- *   - image                 -> type "image"; comment = the note, if any (no text).
+ *   - image                 -> type "image"; comment = the note, if any (no text);
+ *                              imagePath = Zotero's cached PNG render (generated
+ *                              from the PDF on demand when missing).
  *   - ink                   -> skipped (no text content).
  *
  * `order` is the 1-based reading-order rank (annotationSortIndex); `pdfLink` is a
@@ -35,12 +37,30 @@ function htmlToPlainText(html: string): string {
   return (doc.body.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
-function buildAnnotation(
+/**
+ * Absolute path of the annotation's cached PNG, generating it from the PDF
+ * when missing; undefined when generation fails (e.g. the PDF file is gone),
+ * which makes the renderer fall back to the text placeholder.
+ */
+async function cacheImagePath(
+  annotation: Zotero.Item,
+): Promise<string | undefined> {
+  try {
+    if (!Zotero.Annotations.hasCacheImage(annotation)) {
+      await Zotero.Annotations.saveCacheImage(annotation);
+    }
+    return Zotero.Annotations.getCacheImagePath(annotation) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function buildAnnotation(
   annotation: Zotero.Item,
   attachment: Zotero.Item,
   libraryID: number,
   order: number,
-): DesiredAnnotation | null {
+): Promise<DesiredAnnotation | null> {
   const annoKey = `${libraryID}:${annotation.key}`;
   const comment = htmlToPlainText(annotation.annotationComment);
   const page = annotation.annotationPageLabel || undefined;
@@ -62,16 +82,24 @@ function buildAnnotation(
       return { ...base, type: 'note', comment };
     }
     case 'image':
-      // No text content; the comment (if any) becomes the block body, else
-      // the renderer emits an "*(image annotation)*" placeholder.
-      return { ...base, type: 'image', comment };
+      // No text content; the cached PNG becomes a real image block (the
+      // renderer falls back to an "*(image annotation)*" placeholder when
+      // no image could be resolved).
+      return {
+        ...base,
+        type: 'image',
+        comment,
+        imagePath: await cacheImagePath(annotation),
+      };
     default:
       return null; // 'ink' and any future text-less type
   }
 }
 
 /** All of an item's annotations in reading order, normalized for the blob. */
-export function readItemAnnotations(item: Zotero.Item): DesiredAnnotation[] {
+export async function readItemAnnotations(
+  item: Zotero.Item,
+): Promise<DesiredAnnotation[]> {
   const attachments = Zotero.Items.get(item.getAttachments(false));
 
   const pairs: { annotation: Zotero.Item; attachment: Zotero.Item }[] = [];
@@ -89,9 +117,15 @@ export function readItemAnnotations(item: Zotero.Item): DesiredAnnotation[] {
     ),
   );
 
-  return pairs
-    .map(({ annotation, attachment }, index) =>
-      buildAnnotation(annotation, attachment, item.libraryID, index + 1),
-    )
-    .filter((a): a is DesiredAnnotation => a !== null);
+  const result: DesiredAnnotation[] = [];
+  for (const [index, { annotation, attachment }] of pairs.entries()) {
+    const built = await buildAnnotation(
+      annotation,
+      attachment,
+      item.libraryID,
+      index + 1,
+    );
+    if (built) result.push(built);
+  }
+  return result;
 }

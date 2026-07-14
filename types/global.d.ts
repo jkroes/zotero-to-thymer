@@ -15,6 +15,7 @@ declare global {
       options?: { tmpPath?: string },
     ): Promise<number>;
     function exists(path: string): Promise<boolean>;
+    function copy(sourcePath: string, destPath: string): Promise<void>;
     function move(sourcePath: string, destPath: string): Promise<void>;
     function remove(
       path: string,
