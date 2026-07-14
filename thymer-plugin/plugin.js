@@ -755,7 +755,7 @@ class Plugin extends AppPlugin {
     else prop.set(wantGuids.length ? wantGuids[0] : null); // single-value relation (e.g. annotation→ref)
   }
 
-  // Resolve an entity (People/Orgs/Tags/Zotero Collections) by name, creating it if absent. On an
+  // Resolve an entity (People/Orgs) by name, creating it if absent. On an
   // in-memory index MISS we RESCAN the collection live before creating — this is the dedup backstop:
   // it catches a record made by another plugin instance (e.g. the brief hot-reload window where two
   // instances coexist) or by MCP since load, so a miss can't silently fork a duplicate entity.

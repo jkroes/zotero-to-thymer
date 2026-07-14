@@ -59,76 +59,18 @@ access (`IOUtils`) and un-CORS'd `fetch`; a Thymer plugin sandbox has neither. T
 plugin does every structured write) is documented in `docs/HANDOFF.md` and survives only inside
 the import panel's direct `reconcileReference` path.
 
-### Zotero side — `src/content/`
+### Zotero side — `src/`
 
-- **`mirror/`** — the transport. `fs.ts` (IOUtils/PathUtils wrapper — the mock seam for tests);
-  `frontmatter.ts` (line-based parse/merge/serialize; un-owned keys + body pass through verbatim;
-  quoting matched to observed mirror output; `mdLink` percent-encodes paths — bare parens break
-  the mirror's link parser); `filenames.ts` (`sanitizeFileStem`); `mirror-schema.ts` (blob id →
-  property label maps + live `_plugin.json` label resolution, rename-safe); `mirror-writer.ts`
-  (`ensureEntityFile` dedup-by-stem, `waitForGuids` poll, `upsertItemFile` locate-by-storedPath-
-  then-Zotero-Key-scan → rename → fresh-read-merge-write, `upsertAnnotationFiles`,
-  `deleteItemFiles`); `choice-provisioner.ts` (disk-diff fast path → MCP read-modify-write);
-  `mirror-sync.ts` (the phased pipeline; persists identity LAST so failed jobs re-run cleanly).
-- **`thymer/mcp-client.ts`** — `ThymerMcpClient`: minimal JSON-RPC client for the Thymer desktop app's
-  MCP server (streamable-HTTP, `127.0.0.1:13100`). Injected `fetch` (pass the Zotero window's). Methods:
-  `initialize`, `ping`, `findCollectionGuid`, `getCollectionConfigJson`/`updateCollectionConfigJson`
-  (choice provisioning; config travels as a JSON string), `updateRecordProperty` (scalar clears ONLY —
-  never multi-value fields).
-- **`thymer/desired-state.ts`** — `buildDesiredState(item)` → `DesiredState` blob: `zoteroKey`
-  (`<libraryID>:<itemKey>`, group-safe), computed `title` (six title formats via `Zotero.QuickCopy`),
-  `scalars`, multi-value `relations` (Creators/Editors/Contributors/Publisher), `tags`, `collections`,
-  `annotations`, and a `contentSig`. Honors both the title-format pref and the Quick Copy citation style.
-  Unchanged by the cutover — it stays the single source of desired state.
-- **`thymer/annotations.ts`** — `readItemAnnotations(item)` → `DesiredAnnotation[]` (highlight/note/image;
-  `annoKey = <libraryID>:<annotationKey>`; reading-order `order`; `zotero://open-pdf` deep link).
-- **`thymer/entities.ts`** — `bucketCreators` (primary-role-aware creator routing).
-- **`data/item-data.ts`** — Zotero-side identity store. A hidden **"Thymer" link-attachment** under the
-  item carries `ThymerSyncData = {zoteroKey, contentSig?, referenceGuid?, filePath?, annoFiles?}` as
-  JSON. `filePath` (mirror-relative) is the primary identity; `referenceGuid` is harvested from the
-  mirror's frontmatter rewrite (optional — the import panel still supplies it directly). Writes use
-  `skipNotifier: true` (re-entrancy guard). Tag `zothymer` is added to synced items.
-- **`sync/sync-job.ts`** — orchestrator. Preflight: `mirrorRoot` pref set +
-  `<root>/<folder>/_plugin.json` exists for all four folders (proves an active mirror + provisioned
-  schema) + MCP `ping()`. Builds plans per item (notes skipped), then hands the batch to
-  `runMirrorSync`.
-- **`sync/sync-regular-item.ts`** — `buildItemPlan`: `buildDesiredState` + stored identity + the
-  **skip gate** (skip only when `contentSig` matches AND the stored mirror file still exists on
-  disk — so user-deleted files are re-created and import-panel/blob-era items get adopted).
-- **`sync/content-signature.ts`** — `contentSignature(item)` = the blob's `contentSig` (network-free), so
-  the modify-skip and the reconciler's reconcile-skip share one identical signature.
-- **`services/open-handler.ts`** — `OpenHandler`: registers `POST /zothymer/open` on Zotero's built-in
-  Connector HTTP server (port 23119). Accepts a `zotero://` URI as `text/plain` body (or JSON `{uri}`).
-  For `select` URIs → `ZoteroPane.selectItem`; for `open-pdf` URIs → `Zotero.FileHandlers.open` with
-  `{ location: { annotationID } }`. Brings Zotero to front via `Zotero.Utilities.Internal.activate()`.
-  Sets `allowRequestsFromUnsafeWebContent = true` to bypass the Connector's browser-origin gate.
-- **`services/sync-manager.ts`** — global
-  `SYNC_DEBOUNCE_MS` (5 s) coalescing, the modify-path content-signature no-op skip, and the
-  `syncingItemIDs` re-entrancy guard.
-- **`prefs/zothymer-pref.ts`** — pref accessors. Branch is **`extensions.zothymer.*`** (unique per plugin
-  so Zothymer and Zotana don't share stored prefs). Prefs: `thymerWorkspace`, `thymerEndpoint`,
-  `mirrorRoot` (absolute path of the Markdown Mirror folder — required for sync), `pageTitleFormat`,
-  `syncOnModifyItems`, `collectionSyncConfigs`.
-- **`prefs/preferences.tsx` + `preferences.xhtml`** — connection groupbox (Workspace GUID + MCP
-  Endpoint + Markdown Mirror folder), the collection sync table, sync-on-modify, and the
-  title-format selector.
-- **`locale/en-US/zothymer.ftl`** — Fluent source of truth for user-facing strings. All l10n ids are
-  `zothymer-*`.
+The Zotero 7 plugin: builds each item's desired state, writes it into the mirror folder via the
+phased pipeline above, and hosts the deep-link `OpenHandler`. Module-by-module map (mirror transport,
+identity store, sync orchestration, prefs, l10n): **`src/README.md`**.
 
 ### Thymer side — `thymer-plugin/`
 
-A global Thymer plugin (`plugin.js`) that, on load, **self-provisions 6 collections** —
-`People` / `Organizations` / `Zotero Tags` / `Zotero Collections` / `References` / `Annotations` (no
-inbox) — and watches `References`: for any record with non-empty **`Sync Data`**, it parses the blob,
-**clears `Sync Data` first** (loop-safe), then writes scalars (value-diffed), resolves+dedupes
-author/editor/publisher/tag/collection entities and sets them as **multi-value relations**, and reconciles
-annotations as child records. Identity is **`Zotero Key` on the Reference** (no `Content Sig` collection
-field — change-detection lives Zotero-side). `custom.css` (applied workspace-global via `set_custom_css`,
-NOT plugin CSS) makes url-prop links clickable. The plugin also installs a **click handler** for
-`zotero://` deep links: intercepts `<a href="zotero:...">` clicks, POSTs the URI to
-`http://127.0.0.1:23119/zothymer/open` (Zotero's Connector server, handled by `OpenHandler`), and falls
-back to clipboard copy if Zotero is unreachable. Full design + verified facts:
-**`thymer-plugin/README.md`** and **`thymer-plugin/reconciler-design.md`**.
+A global Thymer plugin (`plugin.js`): self-provisions the collections and their schema, reconciles
+`Sync Data` blobs (the pre-cutover write path), and hosts the `zotero://` deep-link click handler.
+All details — what it provisions, the reconcile loop, identity model, CSS — live in
+**`thymer-plugin/README.md`**; build spec in **`thymer-plugin/reconciler-design.md`**.
 
 ## Commands
 
@@ -278,8 +220,8 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
   casts either narrowed properly or given justified, correctly-placed disables.
   1. **Tests:** the old test specs were deleted; rewrite against the Thymer modules
      (`mcp-client` / `desired-state` / `push`).
-- **`tsc` noise:** `typecheck` reports errors inside `node_modules/@voidzero-dev/*` (vite-plus `.d.ts`);
-  `src/` is clean. Add `"skipLibCheck": true` to `tsconfig.json` for a clean run if wanted.
+- **`pnpm typecheck` is clean** (`skipLibCheck` is set in `tsconfig.json`, silencing the old
+  `node_modules/@voidzero-dev/*` `.d.ts` noise).
 
 ## Pointers
 

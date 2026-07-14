@@ -12,11 +12,12 @@ existing). This plugin does **every structured write** MCP cannot — the multi-
 
 ## What it does
 
-On load it **self-provisions** these collections (creates them if absent, sets their field schema):
-`People`, `Organizations`, `Zotero Tags`, `Zotero Collections`, `References`, `Annotations` — **no
-separate inbox collection**. The `References` schema is a faithful translation of zotana's full field
+On load it **self-provisions** these 4 collections (creates them if absent, sets their field schema):
+`People`, `Organizations`, `References`, `Annotations` — **no separate inbox collection**; tags and
+Zotero-collection memberships are multi-value CHOICE FIELDS on `References`, not collections. The
+`References` schema is a faithful translation of zotana's full field
 `CATALOG` (`zotero-to-tana/src/content/tana/constants.ts`): Creators/Editors/Contributors/Publisher
-relations, Tags/Collections relations, and every scalar — Item Type, Year, Date, Container, DOI, URL,
+relations, Tags/Collections multi-value choice fields, and every scalar — Item Type, Year, Date, Container, DOI, URL,
 Abstract, Citation Key, Volume, Issue, Pages, Place, Item Link, **Item Title** (the actual Zotero item
 title — zotana's "Title"; renamed because Thymer reserves "Title" for the built-in record name), Short
 Title, Edition, Series, Number, Type Detail, Extra, Full Citation, In-Text Citation, File Path, Date
@@ -27,6 +28,12 @@ collection entities and writes them as multi-value relations, and reconciles ann
 records (one single-value `Reference` → parent; removals are trash-guarded). It **does not create**
 References — the Zotero side does; identity is `Zotero Key` on the record. `onLoad` also drains any
 References left with a non-empty `Sync Data` (catch-up for syncs written while Thymer was closed).
+
+It also installs a **click handler for `zotero://` deep links**: intercepts `<a href="zotero:...">`
+clicks, POSTs the URI to `http://127.0.0.1:23119/zothymer/open` (Zotero's Connector server, handled
+by the Zotero side's `OpenHandler`), and falls back to clipboard copy if Zotero is unreachable.
+`custom.css` (applied workspace-global via `set_custom_css`, NOT plugin CSS) makes url-prop links
+clickable.
 
 Re-entrancy/dedup: MCP and plugin writes are indistinguishable (`isLocal=true`), so the gate is
 "`Sync Data` non-empty" + clear-first + an in-flight set; entity/annotation creation **rescans the
@@ -39,7 +46,7 @@ fork duplicates.
 plugin with `NAME_PREFIX=""` against the production layout, driven by MCP writes mirroring the Zotero
 half's intended Option A output. Confirmed working:
 
-- Self-provisioning all 6 collections (no inbox) incl. `read_only` fields + `record` relations w/
+- Self-provisioning all 4 collections (no inbox) incl. `read_only` fields + `record` relations w/
   `filter_colguid`; the transient `Sync Data` field on `References`.
 - **Create path** (Zotero `create_record` with `Zotero Key` + `Sync Data`): every scalar (correctly
   typed, incl. year-only date → local midnight), **multi-value Creators/Publisher/Tags/Collections —
@@ -104,7 +111,7 @@ modules; the current single file pastes directly once `export` is removed).
 A rewind reverts the live workspace, so recreation is a 2-step replay (everything needed is in this repo):
 
 1. **Plugin + collections** — load `plugin.js` as the global plugin (`update_plugin_code` with
-   `NAME_PREFIX=""`). `ensureSchema` provisions all 6 collections fresh, with the refined schema baked
+   `NAME_PREFIX=""`). `ensureSchema` provisions all 4 collections fresh, with the refined schema baked
    into the seed config — `Item Type` is `choice` (seeded with `ITEM_TYPE_LABELS`) and `Year` is
    `number_format:"plain"` (`plugin.js:83-84`). No post-hoc retype needed when collections are created
    from scratch; the session-3 MCP migrations were only for collections that predated those defs.
