@@ -26,6 +26,16 @@
   font-family: monospace;
 }
 
+#zothymer-syncFields-container {
+  display: grid;
+  gap: 2px 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.zothymer-sync-field {
+  white-space: nowrap;
+}
+
 #zothymer-syncConfigsTable-container {
   height: 250px;
   max-height: 250px;

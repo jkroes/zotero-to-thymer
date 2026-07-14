@@ -4,6 +4,7 @@ import { zoteroMock } from '../../../../test/utils';
 import {
   type DesiredState,
   extractYear,
+  filterDesiredState,
   normalizeDate,
   signatureOf,
   zoteroKeyOf,
@@ -152,5 +153,77 @@ describe('zoteroLink', () => {
     const item = { key: 'XYZ' } as Zotero.Item;
 
     expect(zoteroLink(item)).toBe('zotero://select/groups/42/items/XYZ');
+  });
+});
+
+// --- filterDesiredState (the field picker; pure) ------------------------------
+
+describe('filterDesiredState', () => {
+  const populated = (): DesiredState =>
+    minimalBlob({
+      scalars: { pages: '10-20', year: 1979, date: '1979' },
+      relations: {
+        Creators: [{ name: 'Stoll', kind: 'person' }],
+        Editors: [],
+        Contributors: [],
+        Publisher: [{ name: 'Acme', kind: 'organization' }],
+      },
+      tags: ['math'],
+      collections: ['Inbox'],
+      annotations: [{ annoKey: '1:A1', type: 'highlight', text: 'hi' }],
+    });
+
+  it('returns the blob unchanged when nothing is disabled', () => {
+    const blob = populated();
+
+    expect(filterDesiredState(blob, new Set())).toBe(blob);
+  });
+
+  it('drops disabled scalars and keeps the rest', () => {
+    const filtered = filterDesiredState(populated(), new Set(['pages']));
+
+    expect(filtered.scalars).toStrictEqual({ year: 1979, date: '1979' });
+  });
+
+  it('empties disabled relation, tag, collection, and annotation groups', () => {
+    const filtered = filterDesiredState(
+      populated(),
+      new Set(['creators', 'tags', 'collections', 'annotations']),
+    );
+
+    expect(filtered.relations.Creators).toStrictEqual([]);
+    expect(filtered.relations.Publisher).toHaveLength(1);
+    expect(filtered.tags).toStrictEqual([]);
+    expect(filtered.collections).toStrictEqual([]);
+    expect(filtered.annotations).toStrictEqual([]);
+  });
+
+  it('keeps identity fields regardless', () => {
+    const filtered = filterDesiredState(
+      populated(),
+      new Set(['pages', 'creators']),
+    );
+
+    expect(filtered.zoteroKey).toBe('1:ABC');
+    expect(filtered.zoteroLink).toBe('zotero://select/library/items/ABC');
+    expect(filtered.title).toBe('Test');
+  });
+
+  it('changes the signature when a populated field is toggled (so the next sync re-pushes)', () => {
+    const enabled = filterDesiredState(populated(), new Set());
+    const disabled = filterDesiredState(populated(), new Set(['pages']));
+
+    expect(signatureOf(disabled)).not.toBe(signatureOf(enabled));
+  });
+
+  it('makes the signature ignore edits to a disabled field', () => {
+    const a = populated();
+    const b = populated();
+    b.scalars.pages = '999';
+    const disabled = new Set(['pages']);
+
+    expect(signatureOf(filterDesiredState(a, disabled))).toBe(
+      signatureOf(filterDesiredState(b, disabled)),
+    );
   });
 });

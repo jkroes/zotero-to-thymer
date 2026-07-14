@@ -183,6 +183,7 @@ export async function upsertItemFile(
   schema: FolderSchema,
   prior: MirrorPrior | undefined,
   entityPaths: Map<string, string>,
+  disabledFields: ReadonlySet<string> = EMPTY_SET,
 ): Promise<UpsertItemResult> {
   const located = await locateItemFile(root, blob.zoteroKey, prior);
   const desired = await desiredItemPath(root, blob, located);
@@ -193,7 +194,7 @@ export async function upsertItemFile(
 
   const fullPath = join(root, desired);
   const doc = parseDoc(await readText(fullPath));
-  const owned = buildOwnedItemKeys(blob, schema, entityPaths);
+  const owned = buildOwnedItemKeys(blob, schema, entityPaths, disabledFields);
 
   const scalarLabels = new Set(
     SCALAR_FIELD_IDS.map((id) => schema.labelOf(id)),
@@ -216,20 +217,31 @@ export async function upsertItemFile(
   };
 }
 
-/** Owned frontmatter (label → rendered value) for a References file. */
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
+/**
+ * Owned frontmatter (label → rendered value) for a References file.
+ *
+ * Field-picker-disabled ids are not owned AT ALL (as opposed to owned with
+ * `undefined`): an existing frontmatter entry passes through merge verbatim
+ * and is never reported for an MCP clear — a disabled field's synced values
+ * stay put in both the file and the record.
+ */
 function buildOwnedItemKeys(
   blob: DesiredState,
   schema: FolderSchema,
   entityPaths: Map<string, string>,
+  disabledFields: ReadonlySet<string>,
 ): Map<string, string | undefined> {
   const owned = new Map<string, string | undefined>();
 
   owned.set(schema.labelOf('zoteroKey'), yamlText(blob.zoteroKey));
   owned.set(schema.labelOf('zoteroLink'), yamlText(blob.zoteroLink));
 
-  // Every scalar id is owned: absent-from-blob → undefined, so a stale key
-  // is dropped from the file (and reported for an MCP clear).
+  // Every enabled scalar id is owned: absent-from-blob → undefined, so a
+  // stale key is dropped from the file (and reported for an MCP clear).
   for (const id of SCALAR_FIELD_IDS) {
+    if (disabledFields.has(id)) continue;
     const label = schema.labelOf(id);
     const value = blob.scalars[id];
     if (value === undefined) {
@@ -244,6 +256,7 @@ function buildOwnedItemKeys(
     }
   }
   for (const [relationKey, fieldId] of Object.entries(RELATION_FIELD_IDS)) {
+    if (disabledFields.has(fieldId)) continue;
     const entities =
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       blob.relations[relationKey as keyof typeof RELATION_FIELD_IDS];
@@ -257,14 +270,18 @@ function buildOwnedItemKeys(
     );
   }
 
-  owned.set(
-    schema.labelOf('tags'),
-    blob.tags.length ? yamlArray(blob.tags) : undefined,
-  );
-  owned.set(
-    schema.labelOf('collections'),
-    blob.collections.length ? yamlArray(blob.collections) : undefined,
-  );
+  if (!disabledFields.has('tags')) {
+    owned.set(
+      schema.labelOf('tags'),
+      blob.tags.length ? yamlArray(blob.tags) : undefined,
+    );
+  }
+  if (!disabledFields.has('collections')) {
+    owned.set(
+      schema.labelOf('collections'),
+      blob.collections.length ? yamlArray(blob.collections) : undefined,
+    );
+  }
 
   return owned;
 }

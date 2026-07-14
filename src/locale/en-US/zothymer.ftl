@@ -36,6 +36,11 @@ zothymer-page-title-format-item-in-text-citation = Item In-Text Citation
 zothymer-page-title-format-item-short-title = Item Short Title
 zothymer-page-title-format-item-title = Item Title
 
+## Synced fields (the field picker)
+
+zothymer-preferences-sync-fields-groupbox-heading = Synced Fields
+zothymer-preferences-sync-fields-groupbox-description = Choose which fields sync to Thymer. Unchecking a field stops syncing it, but values already synced stay on the Thymer record until you clear them there. Re-checking a field syncs it again on each item's next sync.
+
 ## Sync preferences
 
 zothymer-preferences-sync-groupbox-heading = Sync Preferences

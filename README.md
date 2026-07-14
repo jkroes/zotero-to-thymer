@@ -77,6 +77,7 @@ Open **Tools > Zothymer Preferences** in Zotero:
 | **Workspace GUID**               | Your Thymer workspace identifier (required).                                                                                                                   |
 | **MCP Endpoint**                 | Override the default `http://127.0.0.1:13100/` (optional).                                                                                                     |
 | **Reference Node Title**         | How each Reference record is named: Author-Date (default), Citation Key (requires Better BibTeX), Full Citation, In-Text Citation, Short Title, or Item Title. |
+| **Synced Fields**                | Choose which fields sync to Thymer (one checkbox per field, all on by default). Unchecking a field stops syncing it; values already synced stay on the Thymer record until you clear them there. Re-checking syncs the field again on each item's next sync. |
 | **Collection sync table**        | Check which Zotero collections participate in auto-sync. Manual syncs (right-click) bypass this.                                                               |
 | **Sync when items are modified** | Toggle auto-sync on item edits (default: on).                                                                                                                  |
 

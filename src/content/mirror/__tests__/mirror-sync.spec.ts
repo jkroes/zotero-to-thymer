@@ -174,6 +174,47 @@ describe('runMirrorSync', () => {
     expect(onItemSynced).toHaveBeenCalledWith(p.item);
   });
 
+  it('skips annotation files entirely when annotations are disabled, carrying the prior map forward', async () => {
+    const p: ItemPlan = {
+      item: {} as Zotero.Item,
+      blob: blob(), // filtered: annotations empty
+      prior: {
+        zoteroKey: '1:ABC',
+        annoFiles: { '1:A': 'Annotations/x 1-A.md' },
+      },
+    };
+
+    await runMirrorSync([p], {
+      ...params(),
+      disabledFields: new Set(['annotations']),
+    });
+
+    // No upsert → no deletion of the existing annotation files (deleting
+    // them would trash their Thymer records).
+    expect(upsertAnnotationFiles).not.toHaveBeenCalled();
+    expect(saveThymerSyncData).toHaveBeenCalledWith(
+      p.item,
+      expect.objectContaining({
+        annoFiles: { '1:A': 'Annotations/x 1-A.md' },
+      }),
+    );
+  });
+
+  it('passes the disabled set to the item-file writer', async () => {
+    const disabledFields = new Set(['pages']);
+
+    await runMirrorSync([plan()], { ...params(), disabledFields });
+
+    expect(upsertItemFile).toHaveBeenCalledWith(
+      '/mirror',
+      expect.anything(),
+      expect.anything(),
+      undefined,
+      expect.anything(),
+      disabledFields,
+    );
+  });
+
   it('clears vanished scalars over MCP using the record guid', async () => {
     vi.mocked(upsertItemFile).mockResolvedValue({
       relPath: 'References/Test, 2024.md',

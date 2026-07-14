@@ -21,6 +21,8 @@ export type FluentMessageId =
   | 'zothymer-page-title-format-item-in-text-citation'
   | 'zothymer-page-title-format-item-short-title'
   | 'zothymer-page-title-format-item-title'
+  | 'zothymer-preferences-sync-fields-groupbox-heading'
+  | 'zothymer-preferences-sync-fields-groupbox-description'
   | 'zothymer-preferences-sync-groupbox-heading'
   | 'zothymer-preferences-sync-groupbox-description1'
   | 'zothymer-preferences-sync-groupbox-description2'

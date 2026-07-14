@@ -50,6 +50,8 @@ import {
 export type MirrorSyncParams = {
   client: ThymerMcpClient;
   mirrorRoot: string;
+  /** Field-picker ids excluded from sync (prefs/sync-fields.ts). */
+  disabledFields?: ReadonlySet<string>;
 };
 
 export type MirrorSyncOptions = {
@@ -59,7 +61,7 @@ export type MirrorSyncOptions = {
 
 export async function runMirrorSync(
   plans: ItemPlan[],
-  { client, mirrorRoot: root }: MirrorSyncParams,
+  { client, mirrorRoot: root, disabledFields = new Set() }: MirrorSyncParams,
   { onItemSynced }: MirrorSyncOptions = {},
 ): Promise<void> {
   if (!plans.length) return;
@@ -109,6 +111,7 @@ export async function runMirrorSync(
             referencesSchema,
             plan.prior,
             entityPaths,
+            disabledFields,
           ),
         });
       }
@@ -163,13 +166,20 @@ export async function runMirrorSync(
         await client.updateRecordProperty(guid, label, '');
       }
 
-      const { annoFiles, newPaths } = await upsertAnnotationFiles(
-        root,
-        plan.blob,
-        annotationsSchema,
-        upsert.relPath,
-        plan.prior,
-      );
+      // Annotations disabled → don't touch annotation files at all. Running
+      // the upsert with the blob's (filtered-to-empty) annotation list would
+      // DELETE the existing files, trashing their records — the field picker
+      // must leave already-synced data alone. Carrying `prior.annoFiles`
+      // forward preserves the mapping for when the field is re-enabled.
+      const { annoFiles, newPaths } = disabledFields.has('annotations')
+        ? { annoFiles: plan.prior?.annoFiles ?? {}, newPaths: [] }
+        : await upsertAnnotationFiles(
+            root,
+            plan.blob,
+            annotationsSchema,
+            upsert.relPath,
+            plan.prior,
+          );
       pendingAnnoPaths.push(...newPaths);
       results.push({ plan, upsert, guid, annoFiles });
     } catch (error) {

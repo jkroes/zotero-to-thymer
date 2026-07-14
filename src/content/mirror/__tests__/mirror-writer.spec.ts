@@ -294,6 +294,49 @@ describe('upsertItemFile', () => {
     );
   });
 
+  it('leaves a disabled scalar untouched instead of dropping and clearing it', async () => {
+    files.set(
+      '/mirror/References/Stoll, 1979.md',
+      '---\nguid: G\nZotero Key: "1:ABCD1234"\nPages: "10-20"\nYear: 1979\n---\n',
+    );
+
+    const result = await upsertItemFile(
+      ROOT,
+      // The field picker filters `pages` out of the blob…
+      makeBlob({ scalars: { year: 1979 } }),
+      passthroughSchema,
+      { filePath: 'References/Stoll, 1979.md' },
+      new Map(),
+      // …and hands the writer the disabled set so it is not owned at all.
+      new Set(['pages']),
+    );
+
+    expect(result.clearedLabels).toStrictEqual([]);
+    expect(files.get('/mirror/References/Stoll, 1979.md')).toContain(
+      'Pages: "10-20"',
+    );
+  });
+
+  it('leaves disabled relation and tag entries untouched', async () => {
+    files.set(
+      '/mirror/References/Stoll, 1979.md',
+      '---\nguid: G\nZotero Key: "1:ABCD1234"\nCreators: ["[Stoll](../People/Stoll.md)"]\nTags: ["math", "stats"]\nYear: 1979\n---\n',
+    );
+
+    await upsertItemFile(
+      ROOT,
+      makeBlob({ scalars: { year: 1979 } }), // filtered: no relations, no tags
+      passthroughSchema,
+      { filePath: 'References/Stoll, 1979.md' },
+      new Map(),
+      new Set(['creators', 'tags']),
+    );
+
+    const text = files.get('/mirror/References/Stoll, 1979.md') ?? '';
+    expect(text).toContain('Creators: ["[Stoll](../People/Stoll.md)"]');
+    expect(text).toContain('Tags: ["math", "stats"]');
+  });
+
   it('renames the file when the title changed (guid stays with the file)', async () => {
     files.set(
       '/mirror/References/Old Title.md',

@@ -6,6 +6,11 @@ import { logger } from '../utils';
 
 import { SyncConfigsTable } from './sync-configs-table';
 import {
+  TOGGLEABLE_SYNC_FIELDS,
+  getDisabledSyncFields,
+  setDisabledSyncFields,
+} from './sync-fields';
+import {
   PAGE_TITLE_FORMAT_L10N_IDS,
   PageTitleFormat,
   ZothymerPref,
@@ -24,7 +29,52 @@ class Preferences {
     this.initTextPref('zothymer-mirrorRoot', ZothymerPref.mirrorRoot);
 
     await this.initPageTitleFormatSelect();
+    this.initSyncFieldsChecklist();
     await this.initSyncConfigsTable();
+  }
+
+  /**
+   * Build the "Synced Fields" checklist: one checkbox per toggleable field,
+   * checked = syncs. Unchecked ids are stored (as the DISABLED set) in the
+   * `disabledSyncFields` pref, consumed by `thymer/desired-state.ts` and the
+   * mirror writer. Elements are created in the XHTML namespace explicitly —
+   * the preferences document is XML, where a bare createElement would not
+   * yield HTML form controls.
+   */
+  private initSyncFieldsChecklist(): void {
+    const container = document.getElementById('zothymer-syncFields-container');
+    if (!container) {
+      logger.error("Failed to find container 'zothymer-syncFields-container'");
+      return;
+    }
+
+    const XHTML_NS = 'http://www.w3.org/1999/xhtml';
+    const disabled = new Set(getDisabledSyncFields());
+
+    for (const field of TOGGLEABLE_SYNC_FIELDS) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      const label = document.createElementNS(
+        XHTML_NS,
+        'label',
+      ) as HTMLLabelElement;
+      label.className = 'zothymer-sync-field';
+
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      const checkbox = document.createElementNS(
+        XHTML_NS,
+        'input',
+      ) as HTMLInputElement;
+      checkbox.type = 'checkbox';
+      checkbox.checked = !disabled.has(field.id);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) disabled.delete(field.id);
+        else disabled.add(field.id);
+        setDisabledSyncFields(disabled);
+      });
+
+      label.append(checkbox, ` ${field.label}`);
+      container.append(label);
+    }
   }
 
   /**

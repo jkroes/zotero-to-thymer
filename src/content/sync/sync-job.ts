@@ -1,7 +1,8 @@
 import { ItemSyncError, LocalizableError } from '../errors';
 import { exists, join } from '../mirror/fs';
 import { MIRROR_FOLDERS } from '../mirror/mirror-schema';
-import { runMirrorSync } from '../mirror/mirror-sync';
+import { runMirrorSync, type MirrorSyncParams } from '../mirror/mirror-sync';
+import { getDisabledSyncFields } from '../prefs/sync-fields';
 import {
   ZothymerPref,
   getRequiredZothymerPref,
@@ -13,10 +14,7 @@ import { getLocalizedErrorMessage, logger } from '../utils';
 import { ProgressWindow } from './progress-window';
 import { buildItemPlan, type ItemPlan } from './sync-regular-item';
 
-export type SyncJobParams = {
-  client: ThymerMcpClient;
-  mirrorRoot: string;
-};
+export type SyncJobParams = MirrorSyncParams;
 
 export async function performSyncJob(
   itemIDs: Set<Zotero.Item['id']>,
@@ -74,7 +72,7 @@ async function prepareSyncJob(window: Window): Promise<SyncJobParams> {
     );
   }
 
-  return { client, mirrorRoot };
+  return { client, mirrorRoot, disabledFields: getDisabledSyncFields() };
 }
 
 async function syncItems(

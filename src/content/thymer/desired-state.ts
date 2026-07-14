@@ -9,6 +9,7 @@
  * thymer-plugin/reconciler-design.md §2. Keep the two in sync.
  */
 
+import { getDisabledSyncFields } from '../prefs/sync-fields';
 import {
   PageTitleFormat,
   ZothymerPref,
@@ -166,8 +167,48 @@ export async function buildDesiredState(
       .filter(Boolean),
     annotations,
   };
-  blob.contentSig = signatureOf(blob);
-  return blob;
+  // Field picker: disabled fields are dropped BEFORE the signature, so an
+  // edit to a disabled field never triggers a re-push, and re-enabling a
+  // field changes the signature (the next sync then writes it).
+  const filtered = filterDesiredState(blob, getDisabledSyncFields());
+  filtered.contentSig = signatureOf(filtered);
+  return filtered;
+}
+
+/**
+ * Drop disabled fields from the blob: disabled scalars are removed, disabled
+ * multi-value groups become empty. The mirror writer ALSO skips disabled ids
+ * (mirror-writer `buildOwnedItemKeys`) so an emptied group is left untouched
+ * rather than dropped-and-cleared — this filter's job is only to keep
+ * disabled fields out of the signature and out of new writes.
+ */
+export function filterDesiredState(
+  blob: DesiredState,
+  disabled: ReadonlySet<string>,
+): DesiredState {
+  if (!disabled.size) return blob;
+
+  const scalars = Object.fromEntries(
+    Object.entries(blob.scalars).filter(([key]) => !disabled.has(key)),
+  );
+  const relation = (
+    key: keyof DesiredState['relations'],
+    id: string,
+  ): DesiredEntity[] => (disabled.has(id) ? [] : blob.relations[key]);
+
+  return {
+    ...blob,
+    scalars,
+    relations: {
+      Creators: relation('Creators', 'creators'),
+      Editors: relation('Editors', 'editors'),
+      Contributors: relation('Contributors', 'contributors'),
+      Publisher: relation('Publisher', 'publisher'),
+    },
+    tags: disabled.has('tags') ? [] : blob.tags,
+    collections: disabled.has('collections') ? [] : blob.collections,
+    annotations: disabled.has('annotations') ? [] : blob.annotations,
+  };
 }
 
 /**
