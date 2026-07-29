@@ -1,6 +1,5 @@
 import { ItemSyncError, LocalizableError } from '../errors';
 import { exists, join } from '../mirror/fs';
-import { MIRROR_FOLDERS } from '../mirror/mirror-schema';
 import { runMirrorSync, type MirrorSyncParams } from '../mirror/mirror-sync';
 import {
   ZothymerPref,
@@ -45,17 +44,16 @@ async function prepareSyncJob(window: Window): Promise<SyncJobParams> {
     );
   }
 
-  // The mirror exports a `_plugin.json` schema file into every collection
-  // folder — its presence is what distinguishes an active Thymer mirror
-  // from a random directory (and catches collection/folder renames).
-  for (const folder of MIRROR_FOLDERS) {
-    if (!(await exists(join(mirrorRoot, folder, '_plugin.json')))) {
-      throw new LocalizableError(
-        `"${mirrorRoot}" doesn't look like an active Thymer mirror (missing ${folder}/_plugin.json). Check the path in Zothymer preferences, that the Markdown Mirror is enabled in Thymer, and that the "Zotero Sync" plugin has provisioned the References, People, and Organizations collections.`,
-        'zothymer-error-mirror-root-invalid',
-        { l10nArgs: { folder } },
-      );
-    }
+  // Thymer keeps the mirror's sync state in a `.thymer/` folder at the root —
+  // its presence is what distinguishes an active mirror from a random
+  // directory. Do NOT check for our own collection folders here: the sync
+  // CREATES missing collections (mirror-sync P0), so requiring them would
+  // deadlock a workspace that doesn't have them yet.
+  if (!(await exists(join(mirrorRoot, '.thymer')))) {
+    throw new LocalizableError(
+      `"${mirrorRoot}" doesn't look like an active Thymer mirror (no .thymer folder). Check the path in Zothymer preferences and that the Markdown Mirror is enabled in Thymer.`,
+      'zothymer-error-mirror-root-invalid',
+    );
   }
 
   // MCP is still the side-channel for choice provisioning + scalar clears.

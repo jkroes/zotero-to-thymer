@@ -71,7 +71,7 @@ export async function runMirrorSync(
 
   // P0 — collections, created once. An existing collection is left exactly
   // as the user has it (deleted properties must stay deleted).
-  await provisionCollections(client, { itemTypeLabels });
+  await provisionCollections(client, root, { itemTypeLabels });
 
   // P1 — choice options on References.
   await provisionChoices(

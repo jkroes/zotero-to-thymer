@@ -11,6 +11,13 @@
  * Consequence to know about: a field added to the sync in a later version
  * will NOT appear in collections that already exist — add it in Thymer (the
  * writer picks it up by id) or migrate deliberately.
+ *
+ * A collection created here has no mirror FOLDER yet: Thymer exports one
+ * (with its `_plugin.json`) a few seconds later. The writer needs that folder
+ * to exist before it can put files in it, so provisioning waits for the
+ * export before returning. The sync preflight deliberately does NOT check for
+ * these folders — it validates `.thymer/` instead — because requiring them
+ * would deadlock the very first sync.
  */
 
 import type { ThymerMcpClient } from '../thymer/mcp-client';
@@ -21,6 +28,7 @@ import {
   type CollectionDef,
   type FieldDef,
 } from './collection-schema';
+import { exists, join } from './fs';
 
 export type ProvisionParams = {
   /** Zotero's localized item-type labels, seeded as Item Type options. */
@@ -34,9 +42,11 @@ export type ProvisionParams = {
  */
 export async function provisionCollections(
   client: ThymerMcpClient,
+  root: string,
   { itemTypeLabels = [] }: ProvisionParams = {},
 ): Promise<Map<string, string>> {
   const guids = new Map<string, string>();
+  const created: string[] = [];
 
   for (const def of collectionDefs(itemTypeLabels)) {
     const existing = await client.findCollectionGuid(def.name);
@@ -59,9 +69,43 @@ export async function provisionCollections(
     if (def.fields.length) {
       await writeFields(client, guid, def, def.fields, guids);
     }
+    created.push(def.name);
   }
 
+  if (created.length) await waitForFolders(root, created);
+
   return guids;
+}
+
+/**
+ * Wait until Thymer has exported a mirror folder for each newly created
+ * collection, proven by its `_plugin.json`. Without this the writer would
+ * write into a folder the mirror doesn't own yet.
+ */
+async function waitForFolders(
+  root: string,
+  folders: string[],
+  { timeoutMs = 120_000, intervalMs = 1000 } = {},
+): Promise<void> {
+  const pending = new Set(folders);
+  const deadline = Date.now() + timeoutMs;
+
+  while (pending.size) {
+    for (const folder of pending) {
+      if (await exists(join(root, folder, '_plugin.json'))) {
+        pending.delete(folder);
+      }
+    }
+    if (!pending.size) return;
+    if (Date.now() >= deadline) {
+      throw new ThymerMcpError(
+        'create_collection',
+        null,
+        `Thymer did not export a mirror folder for ${[...pending].join(', ')} within ${Math.round(timeoutMs / 1000)}s. Is the Markdown Mirror enabled and pointing at this folder?`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
 }
 
 /**
