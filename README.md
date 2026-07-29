@@ -30,7 +30,8 @@ properties, on the next sync.)
 
 - **Zotero 7** (desktop).
 - **Thymer** (desktop app, v1.0.16+), logged in and with the workspace loaded.
-- Thymer's MCP server enabled: Settings > MCP (AI Agents) > Read & Write.
+- Thymer's MCP server enabled: Settings > MCP (AI Agents), with access set to **Read & Write**
+  (both steps are required — see [Troubleshooting](#troubleshooting)).
 
 ## Installation
 
@@ -94,6 +95,13 @@ Open **Tools > Zothymer Preferences** in Zotero:
 ## Schema ownership
 
 The sync creates each collection once and seeds its properties; after that the schema is yours. Rename fields, reorder them, delete the ones you don't want, or add your own — the sync resolves fields by internal ID rather than by label, so renames survive, and it only writes properties that currently exist. Nothing it does will re-add or overwrite a property you changed.
+
+## Troubleshooting
+
+**"Thymer is not reachable" on a fresh machine.** Two separate settings have to be on, and turning
+on only the first is the common miss. In Thymer, open **Settings > MCP (AI Agents)**: enable the
+server, then set the workspace's access level to **Read & Write**. Sync fails its startup check
+until both are set — the check runs before anything is written, so nothing is half-synced.
 
 ## Architecture
 
