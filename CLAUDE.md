@@ -14,8 +14,12 @@ Live-sync **Zotero** library items into **Thymer**. Two halves, **both in this r
 > **Status: three collections on the mirror transport.** References, People and Organizations,
 > one mirror folder each. Annotations are not records: they are APPEND-ONLY markdown blocks in
 > the reference page's body under `## Annotations`, gated by `syncedAnnoKeys` in the item's
-> stored identity. Unit-verified (200 tests); the full e2e (xpi against the live apps) is the
-> remaining gate.
+> stored identity. Unit-verified (200 tests). **Live e2e partially closed (2026-07-29):** the
+> mirror transport produced real `References/` pages with `## Annotations` blocks in the live
+> workspace, and the **in-body `zotero://open-pdf` links render as real link segments and click
+> through to Zotero** via the companion plugin's HTTP bridge — previously only the `Item Link`
+> URL property had been exercised. Remaining e2e gate: the write paths this session didn't
+> touch (choice provisioning, MCP scalar clears, re-push/dedup over an edited item).
 >
 > **Thymer's live schema decides what syncs.** The Zotero side creates each collection if it is
 > missing and seeds its properties — then never re-asserts them. The writer reads the live

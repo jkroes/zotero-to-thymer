@@ -103,6 +103,12 @@ on only the first is the common miss. In Thymer, open **Settings > MCP (AI Agent
 server, then set the workspace's access level to **Read & Write**. Sync fails its startup check
 until both are set — the check runs before anything is written, so nothing is half-synced.
 
+**Annotation and item links look like links but do nothing when clicked.** The companion Thymer
+plugin is missing. It is what routes those links to Zotero, and it does not travel with the Zotero
+plugin — install it separately (step 1 of [Installation](#1-thymer-companion-plugin)). Zotero also
+has to be running; if a click reports "Copied: …" instead of jumping, Zotero didn't answer and the
+address went to your clipboard.
+
 ## Architecture
 
 The Zotero plugin writes each item as a markdown file into the **Thymer Markdown Mirror** folder ("files as the API"); Thymer's two-way mirror ingests file changes within seconds. Frontmatter carries the properties — including multi-value relations as cross-folder markdown links (`[Name](../People/Name.md)`) — and the page body carries your notes plus the appended annotation blocks. Thymer's MCP server stays on as a thin side channel for choice-option provisioning and clearing emptied single-value fields (two things files can't express).
