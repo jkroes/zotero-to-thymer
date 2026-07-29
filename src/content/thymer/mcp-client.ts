@@ -96,7 +96,25 @@ export class ThymerMcpClient {
     }
   }
 
-  /** Resolve a collection GUID by name (the reconciler provisions `References`). */
+  /**
+   * Create a collection and return its GUID. Only called when the collection
+   * is missing — provisioning is create-once (see collection-provisioner).
+   */
+  public async createCollection(
+    name: string,
+    icon?: string,
+  ): Promise<string | null> {
+    const out = await this.callTool('create_collection', {
+      name,
+      ...(icon ? { icon } : {}),
+    });
+    // The tool echoes the new collection; fall back to a lookup by name.
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+    const guid = (out?.collection as { guid?: string } | undefined)?.guid;
+    return guid ?? (await this.findCollectionGuid(name));
+  }
+
+  /** Resolve a collection GUID by name. */
   public async findCollectionGuid(name: string): Promise<string | null> {
     const out = await this.callTool('list_collections', {});
     // MCP returns untyped JSON; shape-cast the collections list at the boundary.

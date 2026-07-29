@@ -3,8 +3,6 @@ import { MissingPrefError } from '../errors';
 
 export enum ZothymerPref {
   collectionSyncConfigs = 'collectionSyncConfigs',
-  /** JSON array of field ids excluded from sync (see prefs/sync-fields.ts). */
-  disabledSyncFields = 'disabledSyncFields',
   pageTitleFormat = 'pageTitleFormat',
   syncOnModifyItems = 'syncOnModifyItems',
   /** Thymer workspace GUID (every MCP tool requires it). */
@@ -47,7 +45,6 @@ export const PAGE_TITLE_FORMAT_L10N_IDS: Record<
 
 type ZothymerPrefValue = Partial<{
   [ZothymerPref.collectionSyncConfigs]: string;
-  [ZothymerPref.disabledSyncFields]: string;
   [ZothymerPref.pageTitleFormat]: PageTitleFormat;
   [ZothymerPref.syncOnModifyItems]: boolean;
   [ZothymerPref.thymerWorkspace]: string;
@@ -96,7 +93,6 @@ function convertRawPrefValue<P extends ZothymerPref>(
 
   return {
     [ZothymerPref.collectionSyncConfigs]: stringPref,
-    [ZothymerPref.disabledSyncFields]: stringPref,
     [ZothymerPref.pageTitleFormat]: pageTitleFormatPref,
     [ZothymerPref.syncOnModifyItems]: booleanPref,
     [ZothymerPref.thymerWorkspace]: stringPref,

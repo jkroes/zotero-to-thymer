@@ -4,44 +4,48 @@ Live-sync **Zotero** library items into **Thymer**. Two halves, **both in this r
 
 - **`src/`** — a **Zotero 7 plugin** (the writer). Fork lineage: [Notero](https://github.com/dvanoni/notero)
   → `zotero-to-tana` (Zotana) → this repo (Zothymer). User-facing overview/setup in `README.md`.
-- **`thymer-plugin/`** — a global Thymer plugin: appends the Reference fields to the user's
-  `Notes` collection, seeds the `Type` options, and hosts the `zotero://` link bridge. (The old
-  4-collection provisioning + `Sync Data` reconciler was deleted 2026-07-14; see
-  `thymer-plugin/README.md`.) The **"Zotero: Library" import panel** (and its Zotero-side support:
+- **`thymer-plugin/`** — a global Thymer plugin whose ONLY job is the `zotero://` link bridge.
+  It owns no schema and writes no data; it is optional (without it the sync still works, you
+  just can't click through to Zotero). See `thymer-plugin/README.md`.
+  The **"Zotero: Library" import panel** (and its Zotero-side support:
   `library-handler.ts` HTTP API, `token-registrar.ts`, the `libraryToken` pref) lives on the
   **`dev` branch only** — removed from `main` 2026-07-04.
 
-> **Status (2026-07-14): single-collection cutover (v0.3).** Everything syncs into the user's
-> `Notes` super-collection as typed pages (multi-value `Type` choice field: Reference / Person /
-> Organization; the field is user-owned and addressed by LABEL). Annotations are no longer
-> records: they are APPEND-ONLY markdown blocks in the Reference page body under
-> `## Annotations`, gated by `syncedAnnoKeys` in the item's stored identity. Live-verified that
-> day on the real Notes mirror folder: same-folder relation links (`[Name](Name.md)`) resolve,
-> `Type: [Reference]` YAML arrays set the multi-value choice, and headings/quotes/`zotero://`
-> links in the body round-trip into real page content. Unit-verified (205 tests); the full
-> e2e (xpi + companion plugin against the live apps) is the remaining gate.
+> **Status: three collections on the mirror transport.** References, People and Organizations,
+> one mirror folder each. Annotations are not records: they are APPEND-ONLY markdown blocks in
+> the reference page's body under `## Annotations`, gated by `syncedAnnoKeys` in the item's
+> stored identity. Unit-verified (200 tests); the full e2e (xpi against the live apps) is the
+> remaining gate.
 >
-> **Status (2026-07-04, afternoon):** the Zotero side is on the **mirror transport (v0.2 cutover)** —
-> unit-tested (`pnpm verify`) AND **live-verified end-to-end** against a fresh (rewound) workspace:
-> entity/item/annotation files ingest in place, 60/60 annotations, relations + choice provisioning,
-> identity persisted, mirror steady-state clean. The morning's first e2e attempt hit a **runaway
-> duplicate loop** (81 copies of one record): `sanitizeFileStem` passed `?` through but the mirror's
-> own sanitizer strips it, so the mirror's guid rewrite landed at a different path and the orphan
-> file re-ingested as a NEW record every ~7 s cycle. Fixed by porting the mirror's sanitizer
-> byte-for-byte (fn `Cs` in the app bundle — see `src/content/mirror/filenames.ts`) and adding a
-> guard: every new file is now guid-polled and waitForGuids REMOVES unadopted files on timeout
-> instead of leaving echo-loop fuel. Second mirror gotcha, same day: its echo-dedup hashes file
-> CONTENT, so byte-identical new entity files imported one-per-cycle with a user-facing
-> "Duplicate files detected" toast — new entity files now carry a unique fake `created:` stamp
-> (whole batch ingests in one cycle, no toast, ZERO residue: `created` is on the importer's
-> skip-list and the mirror's rewrite replaces it; un-owned keys, by contrast, persist forever
-> as hidden `$mirror:<key>` record data). Importer key model (from the app bundle): exact
-> property-label match → normalized match → specials (`Icon:`/`Banner:` applied) → `$mirror:`
-> fallback; `guid`/`collection_guid`/`created`/`modified`/`Title`/`title` skipped — so
-> frontmatter can NEVER set a record name (filename only).
-> History + verified facts: **`docs/HANDOFF.md`** (pre-cutover),
-> **`docs/mirror-transport-spike.md`** (the evidence for this architecture); port status:
-> **`docs/PORTING.md`**.
+> **Thymer's live schema decides what syncs.** The Zotero side creates each collection if it is
+> missing and seeds its properties — then never re-asserts them. The writer reads the live
+> schema from each folder's `_plugin.json` and emits only fields that still exist, so DELETING
+> a property in Thymer is how you opt a field out, permanently. There is no field picker; the
+> Zotero preference that used to do this was removed once the schema became the single source
+> of truth.
+>
+> History + verified facts: **`docs/mirror-transport-spike.md`** (the evidence for this
+> architecture, incl. the duplicate-loop and echo-dedup findings), **`docs/HANDOFF.md`**
+> (pre-cutover); port status: **`docs/PORTING.md`**.
+
+Two mirror behaviors are load-bearing and easy to reintroduce bugs against:
+
+- **Filename sanitizer parity.** `sanitizeFileStem` must stay byte-identical to the mirror's own
+  sanitizer (fn `Cs` in the app bundle — see `src/content/mirror/filenames.ts`). When it diverged
+  (`?` passed through), the mirror's guid rewrite landed at a different path and the orphan file
+  re-ingested as a NEW record every ~7 s — 81 copies of one record. Every new file is now
+  guid-polled, and `waitForGuids` REMOVES unadopted files on timeout rather than leaving
+  echo-loop fuel.
+- **Echo-dedup hashes file CONTENT**, so byte-identical new entity files import one-per-cycle
+  behind a "Duplicate files detected" toast. New entity files therefore carry a unique fake
+  `created:` stamp — it leaves zero residue because `created` is on the importer's skip-list and
+  the mirror's rewrite replaces it. Un-owned keys, by contrast, persist forever as hidden
+  `$mirror:<key>` record data.
+
+Importer key model (from the app bundle): exact property-label match → normalized match →
+specials (`Icon:`/`Banner:` applied) → `$mirror:` fallback;
+`guid`/`collection_guid`/`created`/`modified`/`Title`/`title` skipped — so frontmatter can NEVER
+set a record name (filename only).
 
 ## Architecture — mirror transport ("files as the API", v0.2)
 
@@ -54,8 +58,8 @@ the mirror silently drops unknown choice values), and **single-value scalar clea
 (`update_record_property` with `''` — the mirror cannot clear a property at all).
 
 The sync pipeline is phased (`src/content/mirror/mirror-sync.ts`), because a relation link only
-resolves if the target RECORD exists at parse time: provision choices (incl. `Type` options) →
-entity files (typed Person/Organization pages in `Notes/`, batched per job) → one guid poll →
+resolves if the target RECORD exists at parse time: provision collections (create-once) →
+provision choices → entity files (People/ and Organizations/ pages, batched per job) → one guid poll →
 item files (annotation blocks appended in the same write) → one guid poll + MCP scalar clears →
 persist identity. All mirror semantics grounding this design are live-verified in
 **`docs/mirror-transport-spike.md`** (T1–T6 + addenda S1–S5): read it before touching the writer.
@@ -128,11 +132,15 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
 
 ## Key design decisions
 
-- **Single super-collection (supertag-lite).** Everything is a page in the user's `Notes`
-  collection, discriminated by the user-owned multi-value `Type` choice field. The writer only
-  ever ADDS our type label (union — user-added types survive); the field is addressed by LABEL
-  because its id is workspace-specific (rename caveat). Entity dedup scans the whole Notes
-  folder by file stem, so a user's existing same-named page is reused as the link target.
+- **Three collections; the collection says what a page IS.** References, People and
+  Organizations, one mirror folder each, so no discriminator field is needed on the page.
+  Relation links are cross-folder (`[Name](../People/Name.md)`, percent-encoded). Entity dedup
+  scans the entity's own folder by file stem, so an existing same-named page is reused as the
+  link target rather than duplicated.
+- **Provisioning is create-once, and lives on the Zotero side.** A missing collection is
+  created and seeded; an existing one is never touched again. This is what makes a user's
+  property deletion stick — the companion plugin used to append missing fields on load, which
+  silently undid deletions, so that code was removed from it.
 - **Annotations are page content, append-only.** One markdown block per annotation under
   `## Annotations`; identity is `syncedAnnoKeys` in the Zotero-side store, so a key is appended
   at most once. The sync never rewrites or removes body lines — user edits inside the section
@@ -192,9 +200,6 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
 
 ## Status / open work
 
-- **Live-verified end-to-end (2026-06-28):** `pnpm start` → synced 12 real Zotero items → all 12
-  `References` records created in Thymer, `Sync Data` cleared by reconciler, scalars + multi-value
-  relations (up to 26 creators) + annotations all written correctly.
 - **Library pull flow — LIVE-VERIFIED END-TO-END (2026-07-03); moved to the `dev` branch
   2026-07-04 (feature removed from `main`, incl. `library-handler.ts` + `token-registrar.ts`
   and the plugin panel — the SDK gotchas below were fixed on `main` and stay).** Full loop
@@ -225,16 +230,10 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
      (Token retrieval during dev: eval `Zotero.Prefs.get(...)` over the DevTools TCP port — see
      "Commands" — since prefs.js only flushes on shutdown. Note web-ext dev runs DISCARD pref
      changes on exit; a normally-installed xpi persists the token.)
-- **Lint baseline is GREEN (2026-07-05):** `pnpm verify` passes clean — 0 lint errors, 0 warnings,
-  170/170 tests. The old ~49-error baseline (unused disable directives + type-aware `no-unsafe-*`
-  firing on the untyped `thymer-plugin/plugin.js`) was fixed: `thymer-plugin` is now in the lint
-  `ignorePatterns` (it's outside tsconfig, so type-aware lint can only see `any` there), dead
-  disable directives removed, non-null-assertion allowed in tests, and the remaining production
-  casts either narrowed properly or given justified, correctly-placed disables.
-  1. **Tests:** the old test specs were deleted; rewrite against the Thymer modules
-     (`mcp-client` / `desired-state` / `push`).
-- **`pnpm typecheck` is clean** (`skipLibCheck` is set in `tsconfig.json`, silencing the old
-  `node_modules/@voidzero-dev/*` `.d.ts` noise).
+- **`pnpm verify` is GREEN** — 0 lint errors, 0 warnings, 200/200 tests. `thymer-plugin/` is in
+  the lint `ignorePatterns` (it sits outside tsconfig, so type-aware lint would only see `any`
+  there). `skipLibCheck` is set in `tsconfig.json`, silencing `node_modules/@voidzero-dev/*`
+  `.d.ts` noise.
 
 ## Pointers
 
@@ -242,9 +241,10 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
   workspace can be rewound to factory default; recreation is replay-from-this-repo).
 - **`docs/PORTING.md`** — the Tana→Thymer port status/history (note: its cross-repo paths predate the
   consolidation; both halves now live here).
-- **`thymer-plugin/README.md`** + **`thymer-plugin/reconciler-design.md`** — the reconciler.
+- **`thymer-plugin/README.md`** — the deep-link bridge, and why it deliberately owns no schema.
+  **`thymer-plugin/reconciler-design.md`** — the historical reconciler spec.
 - **Memory slugs:** `zotero-to-thymer-sync`, `thymer-sdk-write-read-model`,
-  `thymer-mcp-search-strict-equality`, `thymer-sandbox-hygiene`, `zotana-schema-fidelity`,
+  `thymer-mcp-search-strict-equality`, `zotana-schema-fidelity`,
   `mcp-write-shapes`, `readonly-property-writes`.
-- General Thymer reference-model notes stay in the sibling repo:
-  `~/repos/thymer-playground/notes/thymer-reference-model.md`.
+- General Thymer reference-model notes stay in the PARENT repo (this folder is a git subtree
+  inside it): `thymer-playground/notes/thymer-reference-model.md`, alongside its root `CLAUDE.md`.

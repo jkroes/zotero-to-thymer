@@ -3,10 +3,9 @@
  * reader for the `_plugin.json` schema file the mirror exports into each
  * collection folder.
  *
- * Single-collection model (2026-07-14): EVERYTHING lives in the user's
- * `Notes` super-collection — references, people, and organizations are all
- * Notes pages discriminated by the user's multi-value `Type` choice field
- * (supertag-lite). One mirror folder, one `_plugin.json`.
+ * Three collections, one mirror folder each: References plus the entity
+ * collections People and Organizations. Annotations are NOT a collection —
+ * they are append-only blocks in the reference page's own body.
  *
  * Frontmatter keys are property LABELS, and labels are user-renamable, so at
  * sync time labels are resolved from the live `_plugin.json` (field ids are
@@ -14,29 +13,25 @@
  * The constants below are the id inventory and the fallback labels; they
  * duplicate thymer-plugin/plugin.js SCHEMA deliberately (plugins can't share
  * modules with the xpi).
- *
- * The `Type` field is the ONE field we don't own: it predates the sync and
- * its id is workspace-specific, so it is addressed by LABEL (`Type`), not id.
- * Renaming it in Thymer breaks the sync's type-tagging — documented caveat.
  */
 
 import { join, readText } from './fs';
 
-export const NOTES_COLLECTION_NAME = 'Notes';
+export const REFERENCES_COLLECTION_NAME = 'References';
 
-/** The user's supertag field (addressed by label — see module docblock). */
-export const TYPE_FIELD_LABEL = 'Type';
-
-/** `Type` choice option per synced page kind. */
-export const TYPE_LABELS = {
-  reference: 'Reference',
-  person: 'Person',
-  organization: 'Organization',
+/** Mirror folder name per entity kind (folder name = collection name). */
+export const ENTITY_FOLDERS = {
+  person: 'People',
+  organization: 'Organizations',
 } as const;
 
-export const MIRROR_FOLDERS = [NOTES_COLLECTION_NAME] as const;
+export const MIRROR_FOLDERS = [
+  REFERENCES_COLLECTION_NAME,
+  ENTITY_FOLDERS.person,
+  ENTITY_FOLDERS.organization,
+] as const;
 
-/** Synced fields: blob scalar/relation id → default property label. */
+/** References fields: blob scalar/relation id → default property label. */
 export const REFERENCE_LABELS: Record<string, string> = {
   zoteroKey: 'Zotero Key',
   itemType: 'Item Type',
@@ -142,10 +137,14 @@ export type FolderSchema = {
   /** Lowercased labels of a choice field's existing options. */
   choiceLabels(fieldId: string): Set<string>;
   /**
-   * Like `choiceLabels`, but the field is found by its LABEL — for the
-   * user-owned `Type` field, whose id is workspace-specific.
+   * Does this property still exist in Thymer? The live schema is
+   * authoritative: a field the user deleted must NOT be written, or the
+   * mirror stores it as invisible carried-over data.
+   *
+   * Permissive when the schema file is absent — a collection created moments
+   * ago hasn't been exported yet, and the first sync must not write nothing.
    */
-  choiceLabelsByFieldLabel(fieldLabel: string): Set<string>;
+  hasField(fieldId: string): boolean;
 };
 
 /**
@@ -160,6 +159,9 @@ export async function loadFolderSchema(
 ): Promise<FolderSchema> {
   const fields = new Map<string, PluginJsonField>();
   const text = await readText(join(root, folder, '_plugin.json'));
+  // Unreadable schema → we cannot tell deleted from not-yet-exported, so
+  // every field is treated as present (see FolderSchema.hasField).
+  let known = false;
   if (text) {
     try {
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
@@ -167,6 +169,7 @@ export async function loadFolderSchema(
       for (const field of parsed.fields ?? []) {
         if (field?.id && field.label) fields.set(field.id, field);
       }
+      known = true;
     } catch {
       // Malformed schema file → fallbacks.
     }
@@ -179,12 +182,8 @@ export async function loadFolderSchema(
     choiceLabels(fieldId: string): Set<string> {
       return optionLabels(fields.get(fieldId));
     },
-    choiceLabelsByFieldLabel(fieldLabel: string): Set<string> {
-      const wanted = fieldLabel.toLowerCase();
-      for (const field of fields.values()) {
-        if (field.label.toLowerCase() === wanted) return optionLabels(field);
-      }
-      return new Set();
+    hasField(fieldId: string): boolean {
+      return known ? fields.has(fieldId) : true;
     },
   };
 }

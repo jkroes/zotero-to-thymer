@@ -2,6 +2,6 @@
   "ver": 1,
   "name": "Zotero Sync",
   "icon": "book",
-  "description": "Companion plugin for Zotero → Thymer sync (mirror transport). Appends the Reference fields to the Notes super-collection, seeds the Type options (Reference/Person/Organization), and routes zotero:// deep links to Zotero via its local HTTP endpoint.",
+  "description": "Companion plugin for Zotero → Thymer sync. Routes zotero:// deep links to Zotero via its local HTTP endpoint. Owns no schema — the Zotero side creates the collections.",
   "off": false
 }

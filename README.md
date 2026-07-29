@@ -1,21 +1,30 @@
 # Zothymer
 
-Live-sync your [Zotero](https://www.zotero.org/) library into [Thymer](https://thymer.com). Items, creators, tags, collections, and PDF annotations all flow into your **Notes** collection as typed pages — no manual entry required.
+Live-sync your [Zotero](https://www.zotero.org/) library into [Thymer](https://thymer.com). Items, creators, tags, collections, and PDF annotations all flow into Thymer as pages — no manual entry required.
 
 > **Status:** early alpha (v0.1.0). Both halves work end-to-end, but the plugin has only been tested with a single-user personal library. Expect rough edges.
 
 ## What syncs
 
-Everything lands in the single **Notes** collection (the "supertag" pattern): each synced page is tagged via the multi-value **Type** choice field, and any types you add to a page yourself are preserved. Each Zotero item becomes a Notes page with Type **Reference** carrying:
+The sync uses three collections — **References**, **People** and **Organizations** — and creates them for you on the first sync. Each Zotero item becomes a page in References carrying:
 
 - **Scalar fields** — Item Type (choice), Item Title, Short Title, Container (choice — journal/book/show), Date, Year, Volume, Issue, Pages, Place, Edition, Series, Number, Type Detail, DOI, URL, Abstract, Full Citation (live CSL), In-Text Citation, Citation Key, Extra, Date Added, Date Modified, File Path, and Item Link (a deep link back to Zotero).
-- **Creators** — primary authors, editors, and contributors, each linked to a deduplicated Notes page with Type **Person** (or **Organization**). Creator roles are item-type-aware (e.g. director for films, podcaster for podcasts). An existing note of yours with the same name is reused as the link target.
-- **Publisher** — linked to a Notes page with Type **Organization**.
+- **Creators** — primary authors, editors, and contributors, each linked to a deduplicated page in **People** (or **Organizations**). Creator roles are item-type-aware (e.g. director for films, podcaster for podcasts). An existing page of yours with the same name is reused as the link target.
+- **Publisher** — linked to a page in **Organizations**.
 - **Tags** — multi-value choice field. New tags are added as choice options automatically.
 - **Collections** — multi-value choice field mirroring which Zotero collections the item is filed in.
 - **Annotations** — highlights, notes, and image annotations from PDFs/EPUBs, written into the Reference page's **content** under an `## Annotations` heading: the highlight as a quote ending in a page-number deep link to the exact spot in Zotero's reader, with your comment (if any) nested directly beneath it. **Append-only:** the sync only ever adds new annotations — it never rewrites or removes what's on the page, so your edits there are safe (and annotations you edit/delete in Zotero go stale in Thymer).
 
-No collections are created: the sync adds its Reference fields to your existing **Notes** collection and seeds the Type options (Reference/Person/Organization).
+### Choosing which fields sync
+
+The sync creates each collection once, with the full set of properties, and then never changes
+your schema again. **To stop a field syncing, delete its property in Thymer** — it stays
+deleted, and the sync simply skips it from then on. Add the property back and it starts filling
+in again on that item's next sync.
+
+Deleting a property removes the values already stored in it, so export first if you want to
+keep them. (Deleting a whole collection is different: it gets recreated, with all its
+properties, on the next sync.)
 
 ## Prerequisites
 
@@ -29,12 +38,14 @@ Zothymer has two parts — a Zotero plugin and a Thymer plugin. Both are require
 
 ### 1. Thymer companion plugin
 
-The companion plugin adds the Reference fields to your Notes collection, seeds the Type options, and makes `zotero://` deep links clickable. Your Notes collection must already exist with a multi-value **Type** choice field.
+The companion plugin makes `zotero://` deep links clickable, so you can jump from a Thymer page
+straight to the item in Zotero. It is **optional** — the sync works fully without it — and it
+never touches your collections or properties.
 
 1. In Thymer, go to **Settings > Plugins** and create a new **global plugin**.
 2. Open its **Edit Code** panel.
 3. Paste the contents of [`thymer-plugin/plugin.js`](thymer-plugin/plugin.js) into **Custom Code** and the contents of [`thymer-plugin/plugin.json`](thymer-plugin/plugin.json) into **Configuration**.
-4. Save. On load the plugin appends the missing fields to Notes (it never creates collections or touches your existing fields).
+4. Save. On load it logs `[zotero-sync] ready`.
 5. _(Optional)_ Apply clickable-link styling: in Thymer, run `set_custom_css` with the contents of [`thymer-plugin/custom.css`](thymer-plugin/custom.css), or paste it into Settings > Custom CSS. This makes URL properties render as blue underlined links.
 
 ### 2. Zotero plugin
@@ -72,22 +83,21 @@ Synced items get a `zothymer` tag (useful for filtering) and a child link-attach
 
 Open **Tools > Zothymer Preferences** in Zotero:
 
-| Setting                          | Description                                                                                                                                                                                                                                                  |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Workspace GUID**               | Your Thymer workspace identifier (required).                                                                                                                                                                                                                 |
-| **MCP Endpoint**                 | Override the default `http://127.0.0.1:13100/` (optional).                                                                                                                                                                                                   |
-| **Reference Node Title**         | How each Reference record is named: Author-Date (default), Citation Key (requires Better BibTeX), Full Citation, In-Text Citation, Short Title, or Item Title.                                                                                               |
-| **Synced Fields**                | Choose which fields sync to Thymer (one checkbox per field, all on by default). Unchecking a field stops syncing it; values already synced stay on the Thymer record until you clear them there. Re-checking syncs the field again on each item's next sync. |
-| **Collection sync table**        | Check which Zotero collections participate in auto-sync. Manual syncs (right-click) bypass this.                                                                                                                                                             |
-| **Sync when items are modified** | Toggle auto-sync on item edits (default: on).                                                                                                                                                                                                                |
+| Setting                          | Description                                                                                                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Workspace GUID**               | Your Thymer workspace identifier (required).                                                                                                                 |
+| **MCP Endpoint**                 | Override the default `http://127.0.0.1:13100/` (optional).                                                                                                   |
+| **Reference Node Title**         | How each reference page is named: Author-Date (default), Citation Key (requires Better BibTeX), Full Citation, In-Text Citation, Short Title, or Item Title. |
+| **Collection sync table**        | Check which Zotero collections participate in auto-sync. Manual syncs (right-click) bypass this.                                                             |
+| **Sync when items are modified** | Toggle auto-sync on item edits (default: on).                                                                                                                |
 
 ## Schema ownership
 
-The companion plugin appends the Reference fields to Notes on first load, but you own the schema after that. You can rename fields, reorder them, or add new ones in the Thymer UI — the sync resolves fields by internal ID, not label, so renames survive. The one exception is the **Type** field, which is yours and is found by its name — renaming it stops new pages from being type-tagged.
+The sync creates each collection once and seeds its properties; after that the schema is yours. Rename fields, reorder them, delete the ones you don't want, or add your own — the sync resolves fields by internal ID rather than by label, so renames survive, and it only writes properties that currently exist. Nothing it does will re-add or overwrite a property you changed.
 
 ## Architecture
 
-The Zotero plugin writes each item as a markdown file into the **Thymer Markdown Mirror** folder ("files as the API"); Thymer's two-way mirror ingests file changes within seconds. Frontmatter carries the properties — including multi-value relations as same-folder markdown links — and the page body carries your notes plus the appended annotation blocks. Thymer's MCP server stays on as a thin side channel for choice-option provisioning and clearing emptied single-value fields (two things files can't express).
+The Zotero plugin writes each item as a markdown file into the **Thymer Markdown Mirror** folder ("files as the API"); Thymer's two-way mirror ingests file changes within seconds. Frontmatter carries the properties — including multi-value relations as cross-folder markdown links (`[Name](../People/Name.md)`) — and the page body carries your notes plus the appended annotation blocks. Thymer's MCP server stays on as a thin side channel for choice-option provisioning and clearing emptied single-value fields (two things files can't express).
 
 See [`CLAUDE.md`](CLAUDE.md) for developer documentation.
 

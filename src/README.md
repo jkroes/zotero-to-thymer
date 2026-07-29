@@ -4,12 +4,16 @@ Developer map of `src/content/`. Architecture context (mirror transport, phased 
 push runs from Zotero) is in the repo-root `../CLAUDE.md`; the live-verified mirror semantics that
 ground the design are in `../docs/mirror-transport-spike.md` — read it before touching the writer.
 
-Single-collection model (2026-07-14): every synced page lives in the user's `Notes`
-super-collection (one mirror folder), discriminated by the user's multi-value `Type` choice
-field (addressed by LABEL — its id is workspace-specific). People/Organizations are typed Notes
-pages; relation links are SAME-FOLDER (`[Name](Name.md)`, live-verified). Annotations are not
-pages: they are APPENDED (append-only, keyed by annoKey) to the Reference page's markdown body
-under `## Annotations`.
+Three collections — `References`, `People`, `Organizations` — one mirror folder each, so a
+page's collection is what says which kind it is (no discriminator field). Relation links are
+CROSS-FOLDER (`[Name](../People/Name.md)`, percent-encoded). Annotations are not pages: they
+are APPENDED (append-only, keyed by annoKey) to the reference page's markdown body under
+`## Annotations`.
+
+Provisioning is create-once and lives here: a missing collection is created and seeded, an
+existing one is never touched again. The writer then treats each folder's `_plugin.json` as
+authoritative and emits only fields that still exist, which is what makes a user's property
+deletion permanent.
 
 ## `content/` modules
 
@@ -17,13 +21,16 @@ under `## Annotations`.
   `frontmatter.ts` (line-based parse/merge/serialize; un-owned keys + body pass through verbatim;
   quoting matched to observed mirror output; `mdLink` percent-encodes paths — bare parens break
   the mirror's link parser); `filenames.ts` (`sanitizeFileStem`); `mirror-schema.ts` (blob id →
-  property label maps + live `_plugin.json` label resolution, rename-safe; `Type` addressed by
-  label); `mirror-writer.ts` (`ensureEntityFile` dedup-by-stem across the whole Notes folder —
+  property label maps + live `_plugin.json` label resolution, rename-safe; `hasField` reports
+  whether a property still exists, permissive when the schema file is unreadable so a
+  just-created collection isn't treated as empty); `collection-schema.ts` +
+  `collection-provisioner.ts` (create-once collection + field seeding, entity collections first
+  so relation `filter_colguid` resolves); `mirror-writer.ts` (`ensureEntityFile` dedup-by-stem within the entity's own folder —
   reuses the user's own same-named page verbatim; `waitForGuids` poll; `upsertItemFile`
-  locate-by-storedPath-then-Zotero-Key-scan → rename → fresh-read-merge-write, `Type` union
-  (adds Reference, never drops user types), append-only annotation blocks via
+  locate-by-storedPath-then-Zotero-Key-scan → rename → fresh-read-merge-write, skipping any
+  field absent from the live schema, append-only annotation blocks via
   `appendAnnotations`/`renderAnnotation`; `deleteItemFiles`); `choice-provisioner.ts` (disk-diff
-  fast path → MCP read-modify-write; also seeds `Type` options by field label);
+  fast path → MCP read-modify-write for Item Type / Container / Tags / Collections options);
   `mirror-sync.ts` (the phased pipeline; persists identity LAST so failed jobs re-run cleanly —
   a crash between item write and persist re-appends annotation blocks on retry, the accepted
   failure mode).
@@ -47,7 +54,7 @@ under `## Annotations`.
   from the mirror's frontmatter rewrite. Writes use `skipNotifier: true` (re-entrancy guard).
   Tag `zothymer` is added to synced items.
 - **`sync/sync-job.ts`** — orchestrator. Preflight: `mirrorRoot` pref set +
-  `<root>/Notes/_plugin.json` exists (proves an active mirror + the Notes collection) + MCP
+  `_plugin.json` exists in each of the three folders (proves an active mirror) + MCP
   `ping()`. Builds plans per item (notes skipped), then hands the batch to `runMirrorSync`.
 - **`sync/sync-regular-item.ts`** — `buildItemPlan`: `buildDesiredState` + stored identity + the
   **skip gate** (skip only when `contentSig` matches AND the stored mirror file still exists on
@@ -65,14 +72,7 @@ under `## Annotations`.
 - **`prefs/zothymer-pref.ts`** — pref accessors. Branch is **`extensions.zothymer.*`** (unique per plugin
   so Zothymer and Zotana don't share stored prefs). Prefs: `thymerWorkspace`, `thymerEndpoint`,
   `mirrorRoot` (absolute path of the Markdown Mirror folder — required for sync), `pageTitleFormat`,
-  `syncOnModifyItems`, `collectionSyncConfigs`, `disabledSyncFields`.
-- **`prefs/sync-fields.ts`** — the field picker. `TOGGLEABLE_SYNC_FIELDS` (every scalar + relation +
-  tags/collections/annotations; identity fields excluded) and the `disabledSyncFields` pref accessors
-  (JSON array of DISABLED ids). Semantics: a disabled field is dropped from the blob BEFORE the
-  content signature (`filterDesiredState`) so its edits never trigger a re-push, and the writer
-  skips it from the owned key set so already-synced values stay untouched in both file and record
-  (no clearing — deliberate, 2026-07-14; the mirror can't clear anyway). Disabling Annotations
-  simply appends nothing (append-only annotations never delete content anyway).
+  `syncOnModifyItems`, `collectionSyncConfigs`.
 - **`prefs/preferences.tsx` + `preferences.xhtml`** — connection groupbox (Workspace GUID + MCP
   Endpoint + Markdown Mirror folder), the collection sync table, sync-on-modify, and the
   title-format selector.

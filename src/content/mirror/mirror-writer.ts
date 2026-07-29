@@ -1,20 +1,18 @@
 /**
  * Renders DesiredState into Markdown Mirror files — the push transport.
  *
- * Single-collection model: every synced page (references AND people/
- * organizations) is a file in the `Notes/` mirror folder, discriminated by
- * the user's multi-value `Type` choice field. Annotations are NOT pages —
- * they are appended (append-only) to the Reference file's markdown body
- * under a `## Annotations` heading.
+ * Three collections, one mirror folder each: reference pages go to
+ * `References/`, entities to `People/` or `Organizations/`. Annotations are
+ * NOT pages — they are appended (append-only) to the Reference file's
+ * markdown body under a `## Annotations` heading.
  *
- * Ground rules (live-verified, docs/mirror-transport-spike.md + the
- * 2026-07-14 Notes-folder session):
+ * Ground rules (live-verified, docs/mirror-transport-spike.md):
  * - Files are read fresh immediately before every rewrite, and everything we
  *   don't own (mirror-added `guid:`/`created:` keys, user keys, the page
  *   body) passes through verbatim. The body is the user's notes — sacred;
  *   the sync only ever APPENDS annotation blocks, never rewrites body lines.
- * - Same-folder relation links (`[Name](Name.md)`, percent-encoded) resolve
- *   correctly (live-verified 2026-07-14 on the Notes folder).
+ * - Cross-folder relation links (`[Name](../People/Name.md)`, percent-
+ *   encoded) resolve correctly.
  * - Relation links resolve only if the target RECORD already exists when the
  *   file is parsed; dangling links are dropped silently and never resolved
  *   retroactively. Hence entity files first, then a guid poll, then items.
@@ -23,8 +21,6 @@
  * - A zero-byte file is never ingested: new entity files get frontmatter.
  * - Datetime fields accept only full YYYY-MM-DD; partial dates are dropped
  *   by the mirror (and would silently diverge), so we never emit them.
- * - The `Type` field is user-owned and multi-value: the writer only ever
- *   ADDS our type label to whatever values are already there.
  */
 
 import { LocalizableError } from '../errors';
@@ -57,11 +53,10 @@ import {
 } from './fs';
 import {
   DATETIME_FIELD_IDS,
-  NOTES_COLLECTION_NAME,
+  ENTITY_FOLDERS,
+  REFERENCES_COLLECTION_NAME,
   RELATION_FIELD_IDS,
   SCALAR_FIELD_IDS,
-  TYPE_FIELD_LABEL,
-  TYPE_LABELS,
   type FolderSchema,
 } from './mirror-schema';
 
@@ -89,30 +84,28 @@ export function entityKeyOf(entity: DesiredEntity): string {
  * Content of a brand-new entity file (zero-byte files are never ingested).
  * The unique `created:` stamp defeats the mirror's content-hash echo-dedup
  * (byte-identical new files import one-per-cycle with a scary "duplicate
- * files" toast — live 2026-07-04) and leaves no residue: `created` is on the
- * importer's skip-list and the mirror's rewrite replaces it. The `Type`
- * array tags the page Person/Organization (the option must already be
- * provisioned — the mirror silently drops unknown choice values).
+ * files" toast) and leaves no residue: `created` is on the importer's
+ * skip-list and the mirror's rewrite replaces it. The entity's kind is
+ * carried by its COLLECTION, so the file needs no discriminator field.
  */
 let entityFileSeq = 0;
-function newEntityFileContent(entity: DesiredEntity): string {
+function newEntityFileContent(): string {
   const stamp = new Date(Date.now() + entityFileSeq++).toISOString();
-  const typeLabel = TYPE_LABELS[entity.kind];
-  return `---\ncreated: ${stamp}\n${TYPE_FIELD_LABEL}: ${yamlArray([typeLabel])}\n---\n`;
+  return `---\ncreated: ${stamp}\n---\n`;
 }
 
 /**
- * Make sure a Notes file exists for the entity; dedup is by normalized file
- * stem across the WHOLE Notes folder — an existing user page with the same
- * name is reused as the link target verbatim (never rewritten; linking to
- * the user's own "Jane Doe" note is the supertag-lite-correct outcome).
- * Returns the ACTUAL on-disk relative path (existing spellings win).
+ * Make sure a file exists for the entity in its own collection folder
+ * (People/ or Organizations/); dedup is by normalized file stem within that
+ * folder — an existing same-named page is reused as the link target verbatim
+ * (never rewritten). Returns the ACTUAL on-disk relative path (existing
+ * spellings win).
  */
 export async function ensureEntityFile(
   root: string,
   entity: DesiredEntity,
 ): Promise<{ relPath: string; created: boolean }> {
-  const folder = NOTES_COLLECTION_NAME;
+  const folder = ENTITY_FOLDERS[entity.kind];
   const wanted = normName(sanitizeFileStem(entity.name));
 
   for (const fileName of await childFileNames(join(root, folder))) {
@@ -122,7 +115,7 @@ export async function ensureEntityFile(
   }
 
   const fileName = `${sanitizeFileStem(entity.name)}.md`;
-  await writeText(join(root, folder, fileName), newEntityFileContent(entity));
+  await writeText(join(root, folder, fileName), newEntityFileContent());
   return { relPath: `${folder}/${fileName}`, created: true };
 }
 
@@ -189,7 +182,7 @@ export type UpsertItemResult = {
 };
 
 /**
- * Create or update the item's Notes file. Location precedence: the stored
+ * Create or update the item's References file. Location precedence: the stored
  * path (verified by `Zotero Key`), then a frontmatter scan of the folder
  * (covers first-time adoption of records created by the old transports and
  * Thymer-side renames), then a new file.
@@ -200,7 +193,6 @@ export async function upsertItemFile(
   schema: FolderSchema,
   prior: MirrorPrior | undefined,
   entityPaths: Map<string, string>,
-  disabledFields: ReadonlySet<string> = EMPTY_SET,
 ): Promise<UpsertItemResult> {
   const located = await locateItemFile(root, blob.zoteroKey, prior);
   const desired = await desiredItemPath(root, blob, located);
@@ -211,8 +203,7 @@ export async function upsertItemFile(
 
   const fullPath = join(root, desired);
   const doc = parseDoc(await readText(fullPath));
-  const owned = buildOwnedItemKeys(blob, schema, entityPaths, disabledFields);
-  setTypeUnion(owned, doc);
+  const owned = buildOwnedItemKeys(blob, schema, entityPaths);
 
   const scalarLabels = new Set(
     SCALAR_FIELD_IDS.map((id) => schema.labelOf(id)),
@@ -250,31 +241,33 @@ export async function upsertItemFile(
   };
 }
 
-const EMPTY_SET: ReadonlySet<string> = new Set();
-
 /**
- * Owned frontmatter (label → rendered value) for an item's Notes file.
+ * Owned frontmatter (label → rendered value) for an item's References file.
  *
- * Field-picker-disabled ids are not owned AT ALL (as opposed to owned with
- * `undefined`): an existing frontmatter entry passes through merge verbatim
- * and is never reported for an MCP clear — a disabled field's synced values
- * stay put in both the file and the record.
+ * A field absent from Thymer's live schema is skipped entirely — not owned,
+ * as opposed to owned with `undefined`. Its existing frontmatter entry then
+ * passes through merge verbatim and is never reported for an MCP clear, so
+ * previously synced values stay put in both the file and the record.
+ *
+ * Skipping deleted properties is what makes deletion stick: writing a key
+ * with no matching property would have the mirror store it as invisible
+ * carried-over data instead.
  */
 function buildOwnedItemKeys(
   blob: DesiredState,
   schema: FolderSchema,
   entityPaths: Map<string, string>,
-  disabledFields: ReadonlySet<string>,
 ): Map<string, string | undefined> {
   const owned = new Map<string, string | undefined>();
+  const skip = (id: string): boolean => !schema.hasField(id);
 
   owned.set(schema.labelOf('zoteroKey'), yamlText(blob.zoteroKey));
   owned.set(schema.labelOf('zoteroLink'), yamlText(blob.zoteroLink));
 
-  // Every enabled scalar id is owned: absent-from-blob → undefined, so a
-  // stale key is dropped from the file (and reported for an MCP clear).
+  // Every live, enabled scalar id is owned: absent-from-blob → undefined, so
+  // a stale key is dropped from the file (and reported for an MCP clear).
   for (const id of SCALAR_FIELD_IDS) {
-    if (disabledFields.has(id)) continue;
+    if (skip(id)) continue;
     const label = schema.labelOf(id);
     const value = blob.scalars[id];
     if (value === undefined) {
@@ -289,15 +282,15 @@ function buildOwnedItemKeys(
     }
   }
   for (const [relationKey, fieldId] of Object.entries(RELATION_FIELD_IDS)) {
-    if (disabledFields.has(fieldId)) continue;
+    if (skip(fieldId)) continue;
     const entities =
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion
       blob.relations[relationKey as keyof typeof RELATION_FIELD_IDS];
     const links = entities.flatMap((entity) => {
       const relPath = entityPaths.get(entityKeyOf(entity));
-      // Same folder: the link target is just the file name (live-verified).
-      const fileName = relPath?.split('/').pop();
-      return fileName ? [mdLink(entity.name, fileName)] : [];
+      // The entity lives in its own collection folder, so the link has to
+      // climb out of References/ first: `../People/Jane Doe.md`.
+      return relPath ? [mdLink(entity.name, `../${relPath}`)] : [];
     });
     owned.set(
       schema.labelOf(fieldId),
@@ -305,13 +298,13 @@ function buildOwnedItemKeys(
     );
   }
 
-  if (!disabledFields.has('tags')) {
+  if (!skip('tags')) {
     owned.set(
       schema.labelOf('tags'),
       blob.tags.length ? yamlArray(blob.tags) : undefined,
     );
   }
-  if (!disabledFields.has('collections')) {
+  if (!skip('collections')) {
     owned.set(
       schema.labelOf('collections'),
       blob.collections.length ? yamlArray(blob.collections) : undefined,
@@ -322,80 +315,14 @@ function buildOwnedItemKeys(
 }
 
 /**
- * Own the user's multi-value `Type` field only enough to ADD our label:
- * absent → `[Reference]`; present without "Reference" → existing values +
- * Reference; present with it → not owned (entry passes through verbatim).
- * User-added type values are never dropped.
- */
-function setTypeUnion(
-  owned: Map<string, string | undefined>,
-  doc: { entries: { key: string; raw: string }[] },
-): void {
-  const raw = rawEntryValue(doc, TYPE_FIELD_LABEL);
-  if (raw === null || raw === '') {
-    owned.set(TYPE_FIELD_LABEL, yamlArray([TYPE_LABELS.reference]));
-    return;
-  }
-  const values = parseInlineArray(raw);
-  if (
-    values.some(
-      (value) => value.toLowerCase() === TYPE_LABELS.reference.toLowerCase(),
-    )
-  ) {
-    return; // already tagged — leave the user's entry untouched
-  }
-  owned.set(TYPE_FIELD_LABEL, yamlArray([...values, TYPE_LABELS.reference]));
-}
-
-/** The raw (unparsed) first-line value of an entry, or null when absent. */
-function rawEntryValue(
-  doc: { entries: { key: string; raw: string }[] },
-  key: string,
-): string | null {
-  const entry = doc.entries.find((candidate) => candidate.key === key);
-  if (!entry) return null;
-  const firstLine = entry.raw.split('\n', 1)[0] ?? '';
-  return firstLine.slice(firstLine.indexOf(':') + 1).trim();
-}
-
-/** Parse `[a, "b, c"]` (or a bare scalar) into trimmed, unquoted items. */
-function parseInlineArray(raw: string): string[] {
-  const inner =
-    raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw;
-  const items: string[] = [];
-  let current = '';
-  let inQuotes = false;
-  for (const char of inner) {
-    if (char === '"') {
-      inQuotes = !inQuotes;
-      current += char;
-    } else if (char === ',' && !inQuotes) {
-      items.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-  items.push(current);
-  return items
-    .map((item) => item.trim())
-    .map((item) =>
-      item.startsWith('"') && item.endsWith('"') && item.length >= 2
-        ? item.slice(1, -1).replaceAll('\\"', '"')
-        : item,
-    )
-    .filter((item) => item.length > 0);
-}
-
-/**
  * A DesiredAnnotation plus the writer-internal name of the PNG copied into
- * the Notes folder for this upsert. Never part of the blob or the signature.
+ * the References folder for this upsert. Never part of the blob or the signature.
  */
 export type RenderableAnnotation = DesiredAnnotation & { imageFile?: string };
 
 /**
  * Copy the cached PNG of each FRESH image annotation (one this upsert will
- * append) into the Notes folder and record the destination file name for the
+ * append) into the References folder and record the destination file name for the
  * renderer. The mirror uploads the PNG to blob storage and MOVES the source
  * into `.thymer/uploaded/`, so the copy is strictly one-shot: an annoKey
  * already in syncedAnnoKeys is never re-copied, while the deleted-page
@@ -416,7 +343,7 @@ async function copyFreshAnnotationImages(
       try {
         await copyFile(
           anno.imagePath,
-          join(root, NOTES_COLLECTION_NAME, imageFile),
+          join(root, REFERENCES_COLLECTION_NAME, imageFile),
         );
       } catch {
         return anno;
@@ -532,7 +459,7 @@ async function locateItemFile(
   zoteroKey: string,
   prior: MirrorPrior | undefined,
 ): Promise<string | null> {
-  const folder = NOTES_COLLECTION_NAME;
+  const folder = REFERENCES_COLLECTION_NAME;
 
   if (prior?.filePath) {
     const key = await fileZoteroKey(root, prior.filePath);
@@ -561,7 +488,7 @@ async function desiredItemPath(
   blob: DesiredState,
   located: string | null,
 ): Promise<string> {
-  const folder = NOTES_COLLECTION_NAME;
+  const folder = REFERENCES_COLLECTION_NAME;
   const stem = sanitizeFileStem(blob.title);
 
   for (let n = 1; ; n++) {

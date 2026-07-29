@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { mock } from 'vitest-mock-extended';
 
 vi.mock('../choice-provisioner');
+vi.mock('../collection-provisioner');
 vi.mock('../mirror-writer');
 vi.mock('../../data/item-data', () => ({
   saveThymerSyncData: vi.fn(),
@@ -12,7 +13,7 @@ vi.mock('../mirror-schema', async (importOriginal) => ({
   loadFolderSchema: vi.fn().mockResolvedValue({
     labelOf: (id: string) => id,
     choiceLabels: () => new Set(),
-    choiceLabelsByFieldLabel: () => new Set(),
+    hasField: () => true,
   }),
 }));
 
@@ -63,7 +64,7 @@ beforeEach(() => {
   );
   vi.mocked(ensureEntityFile).mockImplementation((_root, entity) =>
     Promise.resolve({
-      relPath: `Notes/${entity.name}.md`,
+      relPath: `People/${entity.name}.md`,
       created: true,
     }),
   );
@@ -71,7 +72,7 @@ beforeEach(() => {
   // A brand-new file has no guid until the mirror ingests it (post-poll,
   // readGuid sees the rewrite).
   vi.mocked(upsertItemFile).mockResolvedValue({
-    relPath: 'Notes/Test, 2024.md',
+    relPath: 'References/Test, 2024.md',
     created: true,
     guid: null,
     clearedLabels: [],
@@ -113,16 +114,16 @@ describe('runMirrorSync', () => {
 
     // Entity links passed through to the item write.
     const entityPaths = vi.mocked(upsertItemFile).mock.calls[0]?.[4];
-    expect(entityPaths?.get('person:ada')).toBe('Notes/Ada.md');
+    expect(entityPaths?.get('person:ada')).toBe('People/Ada.md');
   });
 
   it('dedupes entities across plans and only polls created files', async () => {
     vi.mocked(ensureEntityFile).mockResolvedValue({
-      relPath: 'Notes/Ada.md',
+      relPath: 'People/Ada.md',
       created: false, // already on disk
     });
     vi.mocked(upsertItemFile).mockResolvedValue({
-      relPath: 'Notes/Test, 2024.md',
+      relPath: 'References/Test, 2024.md',
       created: false,
       guid: 'GUID1', // already ingested
       clearedLabels: [],
@@ -148,7 +149,7 @@ describe('runMirrorSync', () => {
 
   it('persists identity last with guid, path, and the appended annoKeys', async () => {
     vi.mocked(upsertItemFile).mockResolvedValue({
-      relPath: 'Notes/Test, 2024.md',
+      relPath: 'References/Test, 2024.md',
       created: true,
       guid: null,
       clearedLabels: [],
@@ -163,7 +164,7 @@ describe('runMirrorSync', () => {
       zoteroKey: '1:ABC',
       contentSig: 'sig',
       referenceGuid: 'GUID1',
-      filePath: 'Notes/Test, 2024.md',
+      filePath: 'References/Test, 2024.md',
       syncedAnnoKeys: ['1:A'],
     });
     expect(saveThymerTag).toHaveBeenCalledWith(p.item);
@@ -172,7 +173,7 @@ describe('runMirrorSync', () => {
 
   it('unions newly appended annoKeys with the prior set', async () => {
     vi.mocked(upsertItemFile).mockResolvedValue({
-      relPath: 'Notes/Test, 2024.md',
+      relPath: 'References/Test, 2024.md',
       created: false,
       guid: 'GUID1',
       clearedLabels: [],
@@ -194,7 +195,7 @@ describe('runMirrorSync', () => {
 
   it('carries prior syncedAnnoKeys forward when nothing new was appended', async () => {
     vi.mocked(upsertItemFile).mockResolvedValue({
-      relPath: 'Notes/Test, 2024.md',
+      relPath: 'References/Test, 2024.md',
       created: false,
       guid: 'GUID1',
       clearedLabels: [],
@@ -202,7 +203,7 @@ describe('runMirrorSync', () => {
     });
     const p: ItemPlan = {
       item: {} as Zotero.Item,
-      blob: blob(), // e.g. annotations disabled by the field picker
+      blob: blob(), // e.g. an item with no annotations
       prior: { zoteroKey: '1:ABC', syncedAnnoKeys: ['1:A'] },
     };
 
@@ -214,24 +215,9 @@ describe('runMirrorSync', () => {
     );
   });
 
-  it('passes the disabled set to the item-file writer', async () => {
-    const disabledFields = new Set(['pages']);
-
-    await runMirrorSync([plan()], { ...params(), disabledFields });
-
-    expect(upsertItemFile).toHaveBeenCalledWith(
-      '/mirror',
-      expect.anything(),
-      expect.anything(),
-      undefined,
-      expect.anything(),
-      disabledFields,
-    );
-  });
-
   it('clears vanished scalars over MCP using the record guid', async () => {
     vi.mocked(upsertItemFile).mockResolvedValue({
-      relPath: 'Notes/Test, 2024.md',
+      relPath: 'References/Test, 2024.md',
       created: false,
       guid: 'GUID1',
       clearedLabels: ['Pages', 'Extra'],

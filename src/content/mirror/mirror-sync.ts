@@ -3,6 +3,7 @@
  * link-resolution rule (a relation link only resolves if the target RECORD
  * already exists at parse time — spike T3):
  *
+ *   P0 create any missing collection + seed its schema (create-once)
  *   P1 provision choice options (once per job, usually zero MCP calls)
  *   P2 entity files for the whole job, ONE guid poll over the new ones
  *   P3 item files (entity links now resolve; annotation blocks are appended
@@ -33,8 +34,9 @@ import type { ThymerMcpClient } from '../thymer/mcp-client';
 import { logger } from '../utils';
 
 import { provisionChoices } from './choice-provisioner';
+import { provisionCollections } from './collection-provisioner';
 import {
-  NOTES_COLLECTION_NAME,
+  REFERENCES_COLLECTION_NAME,
   REFERENCE_LABELS,
   loadFolderSchema,
 } from './mirror-schema';
@@ -51,8 +53,8 @@ import {
 export type MirrorSyncParams = {
   client: ThymerMcpClient;
   mirrorRoot: string;
-  /** Field-picker ids excluded from sync (prefs/sync-fields.ts). */
-  disabledFields?: ReadonlySet<string>;
+  /** Zotero's localized item-type labels, seeded on a fresh References. */
+  itemTypeLabels?: string[];
 };
 
 export type MirrorSyncOptions = {
@@ -62,12 +64,16 @@ export type MirrorSyncOptions = {
 
 export async function runMirrorSync(
   plans: ItemPlan[],
-  { client, mirrorRoot: root, disabledFields = new Set() }: MirrorSyncParams,
+  { client, mirrorRoot: root, itemTypeLabels = [] }: MirrorSyncParams,
   { onItemSynced }: MirrorSyncOptions = {},
 ): Promise<void> {
   if (!plans.length) return;
 
-  // P1 — choice options (incl. the Type options for entity/reference pages).
+  // P0 — collections, created once. An existing collection is left exactly
+  // as the user has it (deleted properties must stay deleted).
+  await provisionCollections(client, { itemTypeLabels });
+
+  // P1 — choice options on References.
   await provisionChoices(
     client,
     root,
@@ -92,9 +98,9 @@ export async function runMirrorSync(
   }
 
   // P3 — item files (annotation blocks appended in the same write).
-  const notesSchema = await loadFolderSchema(
+  const referencesSchema = await loadFolderSchema(
     root,
-    NOTES_COLLECTION_NAME,
+    REFERENCES_COLLECTION_NAME,
     REFERENCE_LABELS,
   );
   const upserts: { plan: ItemPlan; upsert: UpsertItemResult | null }[] = [];
@@ -109,10 +115,9 @@ export async function runMirrorSync(
           upsert: await upsertItemFile(
             root,
             plan.blob,
-            notesSchema,
+            referencesSchema,
             plan.prior,
             entityPaths,
-            disabledFields,
           ),
         });
       }
