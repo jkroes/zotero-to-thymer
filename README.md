@@ -2,7 +2,7 @@
 
 Live-sync your [Zotero](https://www.zotero.org/) library into [Thymer](https://thymer.com). Items, creators, tags, collections, and PDF annotations all flow into Thymer as pages — no manual entry required.
 
-> **Status:** early alpha (v0.1.0). Both halves work end-to-end, but the plugin has only been tested with a single-user personal library. Expect rough edges.
+> **Status:** early alpha (v0.2.0). Both halves work end-to-end, but the plugin has only been tested with a single-user personal library. Expect rough edges.
 
 ## What syncs
 
@@ -58,7 +58,7 @@ never touches your collections or properties.
    pnpm create-xpi
    ```
 
-2. In Zotero, go to **Tools > Add-ons** and install `xpi/zothymer-0.1.0.xpi` (drag-and-drop or "Install Add-on From File...").
+2. In Zotero, go to **Tools > Add-ons** and install `xpi/zothymer-0.2.0.xpi` (drag-and-drop or "Install Add-on From File...").
 3. Open **Tools > Zothymer Preferences** and enter your Thymer **Workspace GUID** (find it via `list_workspaces` in Thymer's MCP, or in the Thymer URL — it's the 26-character alphanumeric ID).
 
 ## Usage
