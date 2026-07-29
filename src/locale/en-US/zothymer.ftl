@@ -10,7 +10,7 @@ zothymer-tools-menu-preferences =
 ## Thymer preferences
 
 zothymer-preferences-thymer-groupbox-heading = Thymer Connection
-zothymer-preferences-thymer-groupbox-description = Syncs items to Thymer as typed pages in your Notes collection, by writing markdown files into the Markdown Mirror folder (Thymer's two-way file sync). Enable the Markdown Mirror in Thymer, load the "Zotero Sync" plugin once (it adds the Reference fields to Notes), then enter your workspace GUID and the mirror folder below.
+zothymer-preferences-thymer-groupbox-description = Syncs items to Thymer by writing markdown files into the Markdown Mirror folder (Thymer's two-way file sync). The first sync creates the References, People and Organizations collections for you. Enable the Markdown Mirror in Thymer, then enter your workspace GUID and the mirror folder below. To stop a field syncing, delete its property in Thymer — it stays deleted.
 zothymer-preferences-thymer-workspace-label = Workspace GUID:
 zothymer-preferences-thymer-workspace-input =
     .placeholder = Your 26-character Thymer workspace GUID
@@ -24,7 +24,7 @@ zothymer-preferences-mirror-root-input =
 ## Reference preferences
 
 zothymer-preferences-properties-groupbox-heading = Reference Preferences
-zothymer-preferences-properties-groupbox-description = Choose how each synced item is named — this sets the Reference record's Title (its node name) in Thymer. The item's actual title is always kept in the separate "Item Title" property.
+zothymer-preferences-properties-groupbox-description = Choose how each synced item is named — this sets the page name in the References collection. The item's actual title is always kept in the separate "Item Title" property.
 zothymer-preferences-page-title-format = Reference Node Title:
 
 ## Page title format options (the select uses each message's VALUE, not a .label attribute)
@@ -56,7 +56,7 @@ zothymer-warning-referenced-fields = Referenced in Thymer, not updated: { $field
 ## Errors
 
 zothymer-error-missing-pref = Missing value for { $pref }. Please enter it in Zothymer preferences.
-zothymer-error-tana-unreachable = Thymer is not reachable. Open the Thymer desktop app (its MCP server listens on 127.0.0.1:13100) and load the "Zotero Sync" reconciler plugin.
+zothymer-error-tana-unreachable = Thymer is not reachable. Open the Thymer desktop app and make sure its MCP server is enabled (Settings > MCP (AI Agents) > Read & Write); it listens on 127.0.0.1:13100.
 zothymer-error-mirror-root-missing = No Markdown Mirror folder is configured. Enter the mirror folder path in Zothymer preferences.
 zothymer-error-mirror-root-invalid = The configured Markdown Mirror folder doesn't look like an active Thymer mirror (missing { $folder }/_plugin.json). Check the path in Zothymer preferences and that the mirror is enabled in Thymer.
 zothymer-error-mirror-ingest-timeout = Thymer did not pick up the synced files in time. Is the Thymer desktop app running with the Markdown Mirror active?
