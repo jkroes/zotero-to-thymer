@@ -12,12 +12,23 @@
  * will NOT appear in collections that already exist — add it in Thymer (the
  * writer picks it up by id) or migrate deliberately.
  *
- * A collection created here has no mirror FOLDER yet: Thymer exports one
- * (with its `_plugin.json`) a few seconds later. The writer needs that folder
- * to exist before it can put files in it, so provisioning waits for the
- * export before returning. The sync preflight deliberately does NOT check for
- * these folders — it validates `.thymer/` instead — because requiring them
- * would deadlock the very first sync.
+ * A collection created here has no mirror FOLDER, and Thymer will not make one
+ * on its own: the mirror's incremental passes export dirty RECORDS only
+ * (`EXPORT dirtyRecords=…` in `.thymer/mirror.log`), and a restart does not
+ * help — verified live 2026-07-29 against a freshly created References. So we
+ * create the folder ourselves and bind it with the `.collection.json` marker
+ * (`{"guid":"…"}`) the mirror uses to map a folder to a collection; binding is
+ * by GUID, not by folder name.
+ *
+ * `_plugin.json` is deliberately NOT synthesised — that file is Thymer's
+ * export of the live schema, and faking it would be inventing a schema. Until
+ * the mirror writes it, `loadFolderSchema` falls back to default labels and
+ * treats every field as present, which is correct for a collection whose
+ * schema we just seeded with exactly those defaults.
+ *
+ * The sync preflight deliberately does NOT check for these folders — it
+ * validates `.thymer/` instead — because requiring them would deadlock the
+ * very first sync.
  */
 
 import type { ThymerMcpClient } from '../thymer/mcp-client';
@@ -28,7 +39,7 @@ import {
   type CollectionDef,
   type FieldDef,
 } from './collection-schema';
-import { exists, join } from './fs';
+import { exists, join, makeDirectory, writeText } from './fs';
 
 export type ProvisionParams = {
   /** Zotero's localized item-type labels, seeded as Item Type options. */
@@ -46,7 +57,6 @@ export async function provisionCollections(
   { itemTypeLabels = [] }: ProvisionParams = {},
 ): Promise<Map<string, string>> {
   const guids = new Map<string, string>();
-  const created: string[] = [];
 
   for (const def of collectionDefs(itemTypeLabels)) {
     const existing = await client.findCollectionGuid(def.name);
@@ -69,43 +79,33 @@ export async function provisionCollections(
     if (def.fields.length) {
       await writeFields(client, guid, def, def.fields, guids);
     }
-    created.push(def.name);
   }
 
-  if (created.length) await waitForFolders(root, created);
+  // Every collection needs a mirror folder before the writer can put files in
+  // it — including ones that already existed but have never been exported
+  // (an empty collection created since the mirror's last full pass).
+  for (const [name, guid] of guids) {
+    await ensureMirrorFolder(root, name, guid);
+  }
 
   return guids;
 }
 
 /**
- * Wait until Thymer has exported a mirror folder for each newly created
- * collection, proven by its `_plugin.json`. Without this the writer would
- * write into a folder the mirror doesn't own yet.
+ * Make sure `<root>/<name>/` exists and is bound to `guid`. Writing the
+ * marker is idempotent: if the mirror already owns the folder, its marker is
+ * identical and we leave it alone rather than rewriting it.
  */
-async function waitForFolders(
+async function ensureMirrorFolder(
   root: string,
-  folders: string[],
-  { timeoutMs = 120_000, intervalMs = 1000 } = {},
+  name: string,
+  guid: string,
 ): Promise<void> {
-  const pending = new Set(folders);
-  const deadline = Date.now() + timeoutMs;
+  const marker = join(root, name, '.collection.json');
+  if (await exists(marker)) return;
 
-  while (pending.size) {
-    for (const folder of pending) {
-      if (await exists(join(root, folder, '_plugin.json'))) {
-        pending.delete(folder);
-      }
-    }
-    if (!pending.size) return;
-    if (Date.now() >= deadline) {
-      throw new ThymerMcpError(
-        'create_collection',
-        null,
-        `Thymer did not export a mirror folder for ${[...pending].join(', ')} within ${Math.round(timeoutMs / 1000)}s. Is the Markdown Mirror enabled and pointing at this folder?`,
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
+  await makeDirectory(join(root, name));
+  await writeText(marker, `${JSON.stringify({ guid })}\n`);
 }
 
 /**

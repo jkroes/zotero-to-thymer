@@ -3,24 +3,28 @@ import { mock } from 'vitest-mock-extended';
 
 import type { ThymerMcpClient } from '../../thymer/mcp-client';
 import { provisionCollections } from '../collection-provisioner';
-import { exists, join } from '../fs';
+import { exists, join, makeDirectory, writeText } from '../fs';
 
 vi.mock('../fs');
 
 const ROOT = '/mirror';
 
-/** Mirror folders Thymer has already exported. */
-let exported: Set<string>;
+/** Mirror folders that already carry a `.collection.json` binding. */
+let bound: Set<string>;
 let client: ReturnType<typeof mock<ThymerMcpClient>>;
 
 beforeEach(() => {
-  exported = new Set(['References', 'People', 'Organizations']);
+  bound = new Set(['People', 'Organizations', 'References']);
   vi.mocked(join).mockImplementation((...parts) => parts.join('/'));
   vi.mocked(exists).mockImplementation((path) =>
     Promise.resolve(
-      [...exported].some((folder) => path === `${ROOT}/${folder}/_plugin.json`),
+      [...bound].some(
+        (folder) => path === `${ROOT}/${folder}/.collection.json`,
+      ),
     ),
   );
+  vi.mocked(makeDirectory).mockResolvedValue();
+  vi.mocked(writeText).mockResolvedValue();
 
   client = mock<ThymerMcpClient>();
   client.getCollectionConfigJson.mockResolvedValue({ fields: [] });
@@ -77,28 +81,50 @@ describe('provisionCollections', () => {
     ).toBe('GUID-Organizations');
   });
 
-  it('waits for a new collection’s mirror folder before returning', async () => {
-    // A collection created over MCP has no mirror folder for a few seconds.
-    // Returning early would have the writer target a folder the mirror does
-    // not own yet.
-    exported.delete('References');
+  it('creates and binds a mirror folder Thymer has not exported', async () => {
+    // The mirror only exports dirty RECORDS, so it never makes a folder for a
+    // newly created collection — not even after a restart (verified live).
+    // Binding is by GUID via `.collection.json`, not by folder name.
+    bound.delete('References');
     client.findCollectionGuid.mockImplementation((name) =>
       Promise.resolve(name === 'References' ? null : `GUID-${name}`),
     );
     client.createCollection.mockResolvedValue('GUID-References');
 
-    let settled = false;
-    const pending = provisionCollections(client, ROOT).then(() => {
-      settled = true;
-    });
+    await provisionCollections(client, ROOT);
 
-    await vi.waitFor(() =>
-      expect(client.createCollection.mock.calls.length).toBe(1),
+    expect(vi.mocked(makeDirectory).mock.calls).toStrictEqual([
+      ['/mirror/References'],
+    ]);
+    expect(vi.mocked(writeText).mock.calls).toStrictEqual([
+      ['/mirror/References/.collection.json', '{"guid":"GUID-References"}\n'],
+    ]);
+  });
+
+  it('leaves an already-bound folder untouched', async () => {
+    client.findCollectionGuid.mockResolvedValue('EXISTING');
+
+    await provisionCollections(client, ROOT);
+
+    expect(vi.mocked(makeDirectory).mock.calls).toStrictEqual([]);
+    expect(vi.mocked(writeText).mock.calls).toStrictEqual([]);
+  });
+
+  it('never synthesises _plugin.json', async () => {
+    // That file is Thymer's export of the LIVE schema; writing one ourselves
+    // would be inventing a schema. loadFolderSchema copes with it missing.
+    bound.clear();
+    client.findCollectionGuid.mockResolvedValue(null);
+    client.createCollection.mockImplementation((name) =>
+      Promise.resolve(`GUID-${name}`),
     );
-    expect(settled).toBe(false);
 
-    exported.add('References');
-    await pending;
-    expect(settled).toBe(true);
+    await provisionCollections(client, ROOT);
+
+    expect(
+      vi
+        .mocked(writeText)
+        .mock.calls.every(([path]) => !path.endsWith('_plugin.json')),
+    ).toBe(true);
   });
 });

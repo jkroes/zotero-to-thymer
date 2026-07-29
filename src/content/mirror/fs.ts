@@ -28,6 +28,14 @@ export function exists(path: string): Promise<boolean> {
   return IOUtils.exists(path);
 }
 
+/** Create a directory (and any missing parents); a no-op if it exists. */
+export function makeDirectory(path: string): Promise<void> {
+  return IOUtils.makeDirectory(path, {
+    createAncestors: true,
+    ignoreExisting: true,
+  });
+}
+
 /** Copy a file (binary-safe — used for annotation PNGs). */
 export function copyFile(fromPath: string, toPath: string): Promise<void> {
   return IOUtils.copy(fromPath, toPath);
