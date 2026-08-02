@@ -67,7 +67,7 @@ Reference (`132DEBZCNWJCYYH0P7E89QXT8M`, key `1:LIVETEST1`) + its entities/annot
 UI inspection (clean up before real syncs). So the RECREATE-AFTER-REWIND steps below are DONE for now.
 
 Working orientation: `CLAUDE.md`. Specs: `thymer-plugin/reconciler-design.md` (now Option A),
-`~/repos/thymer-playground/notes/thymer-reference-model.md` (relations). Memory: `zotero-to-thymer-sync`,
+the `thymer` skill's `reference/reference-model.md` (relations). Memory: `zotero-to-thymer-sync`,
 `thymer-sdk-write-read-model`, `thymer-mcp-search-strict-equality`, `thymer-sandbox-hygiene`,
 `zotana-schema-fidelity`.
 The history below (architecture + verified facts) is the record of how we got here.
@@ -366,7 +366,7 @@ Both are now feasible (fact #6 unblocks either). MCP is the only Zotero→Thymer
 - **MCP record-relation writes = bare GUID string**, never a JSON array (array corrupts on update).
 - **MCP multi-value bug** is real and worth filing: `notes/bugreport-mcp-multivalue-update.md`
   (ready-to-post Discord #bugs version included). SDK + data model support it; only the MCP tool is broken.
-- **Reference model** (full detail in `~/repos/thymer-playground/notes/thymer-reference-model.md`): records AND line items are
+- **Reference model** (full detail in the `thymer` skill's `reference/reference-model.md`): records AND line items are
   referenceable; property values are not. `get_backlinks(record)` = comprehensive (inline ref +
   `linkbtn` + relation). `@linkto` = inbound but **misses `linkbtn` buttons**. `@backref` = the
   **inverse** (outbound), NOT a backlink query. Reference kinds are `"line"` vs `"property"` (SDK

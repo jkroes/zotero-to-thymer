@@ -17,7 +17,7 @@
 > inbox `Status` lifecycle, §7–8 inbox identity) changed. Current truth: `../docs/HANDOFF.md` + `plugin.js`.
 
 Captured 2026-06-27. Design step #2 from `../docs/HANDOFF.md`. **Architecture chosen: all-SDK-writes**
-(MCP is a dumb pipe). Builds on `~/repos/thymer-playground/notes/thymer-reference-model.md` (the §-refs below point there) and
+(MCP is a dumb pipe). Builds on the `thymer` skill's `reference/reference-model.md` (the §-refs below point there) and
 the verified facts table in `../docs/HANDOFF.md`. Memory: [[zotero-to-thymer-sync]], [[mcp-write-shapes]],
 [[readonly-property-writes]], [[global-plugin-can-create-collections]], [[thymer-sandbox-hygiene]].
 Verify-live rule applies ([[verify-against-live-thymer]]).

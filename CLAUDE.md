@@ -199,8 +199,8 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
   `matching_records: [{guid, name, collection_guid, type}]` (line items, if any, are under `pages`). An
   earlier guess of `results`/`records`/`items` would have made every item look new.
 - **MCP cannot write multi-value relations** on an existing record — that asymmetry is the entire reason
-  for the SDK reconciler (memory: `mcp-write-shapes`, and `thymer-reference-model.md` §4 in the
-  `thymer-playground` repo).
+  for the SDK reconciler (memory: `mcp-write-shapes`, and `reference-model.md` §4 in the
+  `thymer` skill).
 
 ## Status / open work
 
@@ -250,5 +250,5 @@ gh run watch $(gh run list --branch main --workflow Build --limit 1 \
 - **Memory slugs:** `zotero-to-thymer-sync`, `thymer-sdk-write-read-model`,
   `thymer-mcp-search-strict-equality`, `zotana-schema-fidelity`,
   `mcp-write-shapes`, `readonly-property-writes`.
-- General Thymer reference-model notes stay in the PARENT repo (this folder is a git subtree
-  inside it): `thymer-playground/notes/thymer-reference-model.md`, alongside its root `CLAUDE.md`.
+- General Thymer reference-model notes live in the `thymer` skill
+  (`~/.claude/skills/thymer/reference/reference-model.md`), not in this repo or its parent.
